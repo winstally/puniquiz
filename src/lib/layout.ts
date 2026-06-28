@@ -19,3 +19,8 @@ export const pageShell: CSSProperties = {
 // Phone-first reading column — the player viewport and centered join/prompt
 // content. One value so "phone width" is defined exactly once (was 460 vs 480).
 export const CONTENT_NARROW = 460;
+
+// Readable single-column width for text/forms inside the wide page shell
+// (legal docs, the authoring hub) — keeps cards from stretching to 1160 and
+// going empty on the right.
+export const CONTENT_READABLE = 720;

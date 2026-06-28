@@ -2,7 +2,9 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { LogOut } from "lucide-react";
 import { Brand } from "@/components/Brand";
+import { PuniButton } from "@/components/PuniButton";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayerRow, type RosterAvatar } from "@/components/HostScreen";
 import { Status } from "@/components/ui/status";
@@ -262,6 +264,22 @@ export function PlayerIdentityPill({
   );
 }
 
+/** Player leave — distinct from identity pills so exit is easy to spot. */
+export function PlayerLeaveButton({ onClick }: { onClick: () => void }) {
+  return (
+    <PuniButton
+      variant="soft"
+      size="sm"
+      tone="rose"
+      icon={LogOut}
+      onClick={onClick}
+      aria-label="ゲームから退出する"
+    >
+      退出する
+    </PuniButton>
+  );
+}
+
 /** Shared lobby header — Brand left, pills right (host + player). */
 export function LobbyHeader({
   pin,
@@ -306,6 +324,37 @@ export function LobbyBody({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+    </div>
+  );
+}
+
+/** Shown when session/snapshot sync stalls — nudge a full page reload. */
+export function LobbyReloadHint({ onReload }: { onReload?: () => void }) {
+  const reload = onReload ?? (() => window.location.reload());
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 10,
+        maxWidth: 300,
+      }}
+    >
+      <p
+        style={{
+          margin: 0,
+          fontSize: 13,
+          fontWeight: 500,
+          color: "var(--ink-soft)",
+          lineHeight: 1.6,
+        }}
+      >
+        読み込みが終わらない場合は、画面を更新してください
+      </p>
+      <PuniButton variant="ghost" size="sm" tone="plum" onClick={reload}>
+        画面を更新
+      </PuniButton>
     </div>
   );
 }

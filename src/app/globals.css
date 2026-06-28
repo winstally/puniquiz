@@ -156,6 +156,12 @@ body {
   }
 }
 
+/* Editable answer tiles (WYSIWYG quiz editor) sit on a colored jelly background,
+   so the label input is white text — keep its placeholder legible. */
+.puni-tile-input::placeholder {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);

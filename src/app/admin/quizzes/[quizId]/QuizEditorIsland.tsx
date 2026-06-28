@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { startGameForQuizAction } from "@/app/actions";
+import { CHOICE_THEME } from "@/lib/quiz";
+import { uploadQuizMedia, validateImageFile } from "@/lib/admin/upload-media";
+import { ImagePlus, X } from "lucide-react";
 import {
-  CHOICE_KEYS,
-  MAX_CHOICES,
-  MAX_POINTS,
+  FIXED_CHOICE_COUNT,
   MAX_TIME_LIMIT,
-  MIN_CHOICES,
-  MIN_POINTS,
   MIN_TIME_LIMIT,
   type DraftChoice,
   type DraftQuestion,
@@ -27,7 +25,9 @@ import {
   quizForEditToDraft,
   type QuizForEdit,
 } from "@/lib/admin/edit-link";
-import { rememberQuiz } from "@/lib/admin/recent-quizzes";
+import { forgetQuiz, rememberQuiz } from "@/lib/admin/recent-quizzes";
+import { ConfirmDialog, ConfirmDialogLayer } from "@/components/ConfirmDialog";
+import { saveQuizAction } from "@/app/actions";
 import {
   AdminBrand,
   AdminShell,
@@ -41,26 +41,15 @@ import {
 
 // CHOICE accent per index, matching the play/host palette order. Kept local so
 // the editor doesn't import client visual components.
-const CHOICE_ACCENT = [
-  "var(--rose)",
-  "var(--sky)",
-  "var(--amber)",
-  "var(--sage)",
-  "var(--plum)",
-  "var(--rose-deep)",
-] as const;
-
 type LoadState =
   | { kind: "loading" }
   | { kind: "invalid" }
   | { kind: "error"; message: string }
   | { kind: "ready"; draft: DraftQuiz };
 
-// The login-free quiz editor. quizId + token come from the route/searchParams.
-// On mount it calls get_quiz_for_edit(quizId, token); a bad/missing token shows a
-// clear "編集リンクが正しくありません" screen. Otherwise it renders the editable
-// form, the shareable edit link (with a copy button + the "anyone with the link"
-// caveat), a 保存 button (save_quiz RPC), and a host-start button.
+// The quiz editor island. The route checks the admin invite cookie before this
+// mounts; the quizId + edit token still come from the route/searchParams and gate
+// the specific quiz. Save also goes through a cookie-checked Server Action.
 export function QuizEditorIsland({
   quizId,
   token,
@@ -77,8 +66,9 @@ export function QuizEditorIsland({
     hasLink ? { kind: "loading" } : { kind: "invalid" },
   );
   const [saving, startSave] = useTransition();
-  const [hosting, startHost] = useTransition();
   const [copied, setCopied] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const previewUrls = useRef<Set<string>>(new Set());
 
   // ---- load the quiz via the token-validated RPC ---------------------------
   useEffect(() => {
@@ -108,12 +98,27 @@ export function QuizEditorIsland({
       // Remember this quiz locally (valid token confirmed) so it shows up in the
       // "編集を続ける" list and the host launcher next time.
       rememberQuiz({ quizId, token, title: quiz.title });
-      setState({ kind: "ready", draft: quizForEditToDraft(quiz) });
+      try {
+        setState({ kind: "ready", draft: quizForEditToDraft(quiz) });
+      } catch (e) {
+        setState({
+          kind: "error",
+          message: e instanceof Error ? e.message : "クイズデータを読み込めませんでした",
+        });
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [supabase, quizId, token, hasLink]);
+
+  useEffect(() => {
+    const urls = previewUrls.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
 
   if (state.kind === "loading") {
     return (
@@ -194,6 +199,9 @@ export function QuizEditorIsland({
   function removeQuestion(qi: number) {
     setDraft((d) => {
       if (d.questions.length <= 1) return d;
+      const removed = d.questions[qi];
+      revokePreview(removed?.media_preview_url);
+      removed?.choices.forEach((c) => revokePreview(c.image_preview_url));
       return { ...d, questions: d.questions.filter((_, i) => i !== qi) };
     });
   }
@@ -228,38 +236,68 @@ export function QuizEditorIsland({
     patchQuestion(qi, { correct_key: key });
   }
 
-  function addChoice(qi: number) {
+  function patchChoice(qi: number, ci: number, patch: Partial<DraftChoice>) {
     setDraft((d) => ({
       ...d,
-      questions: d.questions.map((q, i) => {
-        if (i !== qi || q.choices.length >= MAX_CHOICES) return q;
-        const next: DraftChoice = {
-          key: CHOICE_KEYS[q.choices.length],
-          label: "",
-        };
-        return { ...q, choices: [...q.choices, next] };
-      }),
+      questions: d.questions.map((q, i) =>
+        i === qi
+          ? { ...q, choices: q.choices.map((c, j) => (j === ci ? { ...c, ...patch } : c)) }
+          : q,
+      ),
     }));
   }
 
-  function removeChoice(qi: number, ci: number) {
-    setDraft((d) => ({
-      ...d,
-      questions: d.questions.map((q, i) => {
-        if (i !== qi || q.choices.length <= MIN_CHOICES) return q;
-        const oldCorrectIndex = q.choices.findIndex((c) => c.key === q.correct_key);
-        const choices = q.choices
-          .filter((_, j) => j !== ci)
-          .map((c, j) => ({ ...c, key: CHOICE_KEYS[j] }));
-        let correct_key = "";
-        if (oldCorrectIndex >= 0 && oldCorrectIndex !== ci) {
-          const newIndex =
-            oldCorrectIndex > ci ? oldCorrectIndex - 1 : oldCorrectIndex;
-          correct_key = choices[newIndex]?.key ?? "";
+  // Stage images locally. Storage upload happens only from the Save button.
+  function stageImage(file: File, apply: (file: File, previewUrl: string) => void) {
+    const err = validateImageFile(file);
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    previewUrls.current.add(previewUrl);
+    apply(file, previewUrl);
+  }
+
+  function revokePreview(url: string | null | undefined) {
+    if (!url) return;
+    URL.revokeObjectURL(url);
+    previewUrls.current.delete(url);
+  }
+
+  async function uploadPendingImages(draft: DraftQuiz): Promise<DraftQuiz> {
+    const questions: DraftQuestion[] = [];
+
+    for (const q of draft.questions) {
+      let media_url = q.media_url ?? null;
+      if (q.media_file) {
+        media_url = await uploadQuizMedia(q.media_file);
+      }
+
+      const choices: DraftChoice[] = [];
+      for (const c of q.choices) {
+        let image_url = c.image_url ?? null;
+        if (c.image_file) {
+          image_url = await uploadQuizMedia(c.image_file);
         }
-        return { ...q, choices, correct_key };
-      }),
-    }));
+        choices.push({
+          ...c,
+          image_url,
+          image_file: null,
+          image_preview_url: null,
+        });
+      }
+
+      questions.push({
+        ...q,
+        media_url,
+        media_file: null,
+        media_preview_url: null,
+        choices,
+      });
+    }
+
+    return { ...draft, questions };
   }
 
   // ---- save (save_quiz RPC) ------------------------------------------------
@@ -274,8 +312,12 @@ export function QuizEditorIsland({
         toast.error(`問題${i + 1}の問題文を入力してください`);
         return;
       }
+      if (q.choices.length !== FIXED_CHOICE_COUNT) {
+        toast.error(`問題${i + 1}の答えは4つ入力してください`);
+        return;
+      }
       if (q.choices.some((c) => c.label.trim().length === 0)) {
-        toast.error(`問題${i + 1}の選択肢をすべて入力してください`);
+        toast.error(`問題${i + 1}の答えを4つすべて入力してください`);
         return;
       }
       if (!q.choices.some((c) => c.key === q.correct_key)) {
@@ -284,39 +326,48 @@ export function QuizEditorIsland({
       }
     }
 
-    const p_questions = draftToSaveQuestions(draft);
     startSave(async () => {
-      const { error } = await supabase.rpc(
-        "save_quiz" as never,
-        {
-          p_quiz_id: quizId,
-          p_edit_token: token,
-          p_title: draft.title.trim(),
-          p_description: draft.description.trim() || null,
-          p_is_published: draft.is_published,
-          p_questions,
-        } as never,
-      );
-      if (error) {
-        toast.error(error.message);
+      let uploadedDraft: DraftQuiz;
+      try {
+        uploadedDraft = await uploadPendingImages(draft);
+      } catch {
+        toast.error("画像をアップロードできませんでした");
         return;
       }
-      // Keep the locally-remembered title fresh after a save.
-      rememberQuiz({ quizId, token, title: draft.title.trim() });
-      toast.success("保存しました");
-    });
-  }
 
-  // ---- host-start ----------------------------------------------------------
-  function onHost() {
-    startHost(async () => {
-      const res = await startGameForQuizAction(quizId);
+      const p_questions = draftToSaveQuestions(uploadedDraft);
+      const res = await saveQuizAction({
+        quizId,
+        token,
+        title: uploadedDraft.title.trim(),
+        description: uploadedDraft.description.trim() || null,
+        questions: p_questions,
+      });
+      draft.questions.forEach((q) => {
+        revokePreview(q.media_preview_url);
+        q.choices.forEach((c) => revokePreview(c.image_preview_url));
+      });
+      setState({ kind: "ready", draft: uploadedDraft });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      router.push(res.redirect);
+      // Keep the locally-remembered title fresh after a save.
+      rememberQuiz({ quizId, token, title: uploadedDraft.title.trim() });
+      toast.success("保存しました");
+      router.push("/admin");
     });
+  }
+
+  // ---- delete (remove from this device) ------------------------------------
+  // No anon server-side delete exists (RLS allows DELETE only for the authenticated
+  // owner), so this drops the local bookmark; link-holders can still open it.
+  // Confirmed via an alert dialog.
+  function onRemoveFromList() {
+    forgetQuiz(quizId);
+    setConfirmRemove(false);
+    toast.success("削除しました");
+    router.push("/admin");
   }
 
   // ---- copy edit link ------------------------------------------------------
@@ -376,9 +427,6 @@ export function QuizEditorIsland({
         }}
       >
         <div style={eyebrowStyle}>編集リンク</div>
-        <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13, lineHeight: 1.6 }}>
-          このリンクを共有すると、誰でもこのクイズを編集できます。あとで編集するためにブックマークしておきましょう。
-        </p>
         <div
           style={{
             display: "flex",
@@ -435,29 +483,12 @@ export function QuizEditorIsland({
             maxLength={280}
           />
         </label>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            cursor: "pointer",
-            userSelect: "none",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={draft.is_published}
-            onChange={(e) => patchQuiz({ is_published: e.target.checked })}
-            style={{ width: 18, height: 18, accentColor: "var(--plum)" }}
-          />
-          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>
-            公開する（他の人も遊べる状態にする）
-          </span>
-        </label>
       </div>
 
       {/* Questions */}
-      {draft.questions.map((q, qi) => (
+      {draft.questions.map((q, qi) => {
+        const questionImage = q.media_preview_url ?? q.media_url;
+        return (
         <div key={qi} style={cardStyle}>
           <div
             style={{
@@ -505,17 +536,6 @@ export function QuizEditorIsland({
           </div>
 
           <label style={labelStyle}>
-            <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>見出し（任意）</span>
-            <input
-              value={q.eyebrow}
-              onChange={(e) => patchQuestion(qi, { eyebrow: e.target.value })}
-              placeholder={`Q${qi + 1} / ${draft.questions.length}`}
-              style={inputStyle}
-              maxLength={40}
-            />
-          </label>
-
-          <label style={labelStyle}>
             <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>問題文</span>
             <textarea
               value={q.text}
@@ -527,90 +547,267 @@ export function QuizEditorIsland({
             />
           </label>
 
-          {/* Choices */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>
-              選択肢（正解を選んでください）
-            </span>
-            {q.choices.map((c, ci) => {
-              const accent = CHOICE_ACCENT[ci % CHOICE_ACCENT.length];
-              const isCorrect = q.correct_key === c.key;
-              return (
-                <div
-                  key={ci}
-                  style={{ display: "flex", alignItems: "center", gap: 10 }}
+          {/* Question image (optional). Selection is local; Save uploads it. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>画像（任意）</span>
+            {questionImage ? (
+              <div style={{ position: "relative", alignSelf: "flex-start" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={questionImage}
+                  alt=""
+                  style={{
+                    maxHeight: 180,
+                    maxWidth: "100%",
+                    borderRadius: 14,
+                    display: "block",
+                    border: "1px solid var(--line)",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    revokePreview(q.media_preview_url);
+                    patchQuestion(qi, {
+                      media_url: null,
+                      media_file: null,
+                      media_preview_url: null,
+                    });
+                  }}
+                  aria-label="画像を削除"
+                  style={{
+                    position: "absolute",
+                    top: -8,
+                    right: -8,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 999,
+                    border: "none",
+                    background: "#fff",
+                    boxShadow: "var(--shadow-card)",
+                    cursor: "pointer",
+                    display: "grid",
+                    placeItems: "center",
+                    color: "var(--ink-soft)",
+                  }}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setCorrect(qi, c.key)}
-                    aria-pressed={isCorrect}
-                    aria-label={`選択肢${ci + 1}を正解にする`}
-                    style={{
-                      width: 30,
-                      height: 30,
-                      flexShrink: 0,
-                      borderRadius: 999,
-                      border: isCorrect
-                        ? `2px solid ${accent}`
-                        : "2px solid var(--line)",
-                      background: isCorrect ? accent : "#fff",
-                      color: isCorrect ? "#fff" : "var(--ink-soft)",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      cursor: "pointer",
-                      display: "grid",
-                      placeItems: "center",
-                      transition: "all .15s",
-                    }}
-                  >
-                    {isCorrect ? "✓" : CHOICE_KEYS[ci].toUpperCase()}
-                  </button>
-                  <input
-                    value={c.label}
-                    onChange={(e) => patchChoiceLabel(qi, ci, e.target.value)}
-                    placeholder={`選択肢 ${ci + 1}`}
-                    style={{
-                      ...inputStyle,
-                      padding: "10px 14px",
-                      borderColor: isCorrect
-                        ? `color-mix(in oklch, ${accent} 50%, var(--line))`
-                        : "var(--line)",
-                    }}
-                    maxLength={80}
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => removeChoice(qi, ci)}
-                    disabled={q.choices.length <= MIN_CHOICES}
-                    style={{
-                      ...ghostPill,
-                      padding: "8px 11px",
-                      fontSize: 13,
-                      boxShadow: "none",
-                      color: "var(--ink-soft)",
-                    }}
-                    aria-label="この選択肢を削除"
-                  >
-                    ×
-                  </Button>
-                </div>
-              );
-            })}
-            {q.choices.length < MAX_CHOICES ? (
-              <Button
-                type="button"
-                onClick={() => addChoice(qi)}
+                  <X size={15} />
+                </button>
+              </div>
+            ) : (
+              <label
                 style={{
-                  ...ghostPill,
                   alignSelf: "flex-start",
-                  padding: "9px 16px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "12px 18px",
+                  borderRadius: 14,
+                  border: "1.5px dashed var(--line)",
+                  background: "#fbfafe",
+                  color: "var(--ink-soft)",
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 700,
                   fontSize: 13,
-                  boxShadow: "none",
+                  cursor: "pointer",
                 }}
               >
-                ＋ 選択肢を追加
-              </Button>
-            ) : null}
+                <ImagePlus size={16} />
+                画像を追加
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      stageImage(f, (file, previewUrl) => {
+                        revokePreview(q.media_preview_url);
+                        patchQuestion(qi, {
+                          media_url: null,
+                          media_file: file,
+                          media_preview_url: previewUrl,
+                        });
+                      });
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+
+          {/* Choices — edited on the real play tiles (color + shape). Tap the
+              check to mark the correct answer; this is exactly how players see it. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>
+              答え（チェックで正解を指定）
+            </span>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 12,
+              }}
+            >
+              {q.choices.map((c, ci) => {
+                const theme = CHOICE_THEME[ci % CHOICE_THEME.length];
+                const isCorrect = q.correct_key === c.key;
+                const choiceImage = c.image_preview_url ?? c.image_url;
+                return (
+                  <div
+                    key={ci}
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "14px 16px",
+                      borderRadius: 18,
+                      background: theme.color,
+                      boxShadow: isCorrect
+                        ? `0 0 0 3px #fff, 0 0 0 6px ${theme.deep}`
+                        : "var(--shadow-card)",
+                      opacity: !q.correct_key || isCorrect ? 1 : 0.72,
+                      transition: "opacity .15s, box-shadow .15s",
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={theme.icon}
+                      alt=""
+                      style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0, display: "block" }}
+                    />
+                    <input
+                      className="puni-tile-input"
+                      value={c.label}
+                      onChange={(e) => patchChoiceLabel(qi, ci, e.target.value)}
+                      placeholder={`答え ${ci + 1}`}
+                      maxLength={80}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        color: "#fff",
+                        fontFamily: "var(--font-display)",
+                        fontWeight: 700,
+                        fontSize: 15,
+                      }}
+                    />
+                    {choiceImage ? (
+                      <div style={{ position: "relative", flexShrink: 0 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={choiceImage}
+                          alt=""
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 9,
+                            objectFit: "cover",
+                            display: "block",
+                            border: "2px solid rgba(255,255,255,0.7)",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            revokePreview(c.image_preview_url);
+                            patchChoice(qi, ci, {
+                              image_url: null,
+                              image_file: null,
+                              image_preview_url: null,
+                            });
+                          }}
+                          aria-label="画像を削除"
+                          style={{
+                            position: "absolute",
+                            top: -7,
+                            right: -7,
+                            width: 18,
+                            height: 18,
+                            borderRadius: 999,
+                            border: "none",
+                            background: "#fff",
+                            color: "var(--ink-soft)",
+                            cursor: "pointer",
+                            boxShadow: "var(--shadow-card)",
+                            fontSize: 11,
+                            lineHeight: 1,
+                            display: "grid",
+                            placeItems: "center",
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <label
+                        aria-label="答えに画像を追加"
+                        title="画像を追加"
+                        style={{
+                          flexShrink: 0,
+                          width: 30,
+                          height: 30,
+                          borderRadius: 9,
+                          display: "grid",
+                          placeItems: "center",
+                          background: "rgba(255,255,255,0.22)",
+                          color: "#fff",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <ImagePlus size={16} />
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) {
+                              stageImage(f, (file, previewUrl) => {
+                                revokePreview(c.image_preview_url);
+                                patchChoice(qi, ci, {
+                                  image_url: null,
+                                  image_file: file,
+                                  image_preview_url: previewUrl,
+                                });
+                              });
+                            }
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCorrect(qi, c.key)}
+                      aria-pressed={isCorrect}
+                      aria-label={`答え${ci + 1}を正解にする`}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        flexShrink: 0,
+                        borderRadius: 999,
+                        border: "2px solid #fff",
+                        background: isCorrect ? "#fff" : "transparent",
+                        color: theme.deep,
+                        cursor: "pointer",
+                        display: "grid",
+                        placeItems: "center",
+                        fontWeight: 800,
+                        fontSize: 14,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {isCorrect ? "✓" : ""}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Per-question settings */}
@@ -630,23 +827,10 @@ export function QuizEditorIsland({
                 style={inputStyle}
               />
             </label>
-            <label style={{ ...labelStyle, flex: "1 1 140px" }}>
-              <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>基本点</span>
-              <input
-                type="number"
-                value={q.points_base}
-                onChange={(e) =>
-                  patchQuestion(qi, { points_base: Number(e.target.value) })
-                }
-                min={MIN_POINTS}
-                max={MAX_POINTS}
-                step={100}
-                style={inputStyle}
-              />
-            </label>
           </div>
         </div>
-      ))}
+        );
+      })}
 
       <Button
         type="button"
@@ -677,27 +861,36 @@ export function QuizEditorIsland({
           disabled={saving}
           style={{ ...plumPill, fontSize: 16, padding: "14px 28px" }}
         >
-          {saving ? "保存中…" : "保存"}
+          {saving ? "保存中…" : "保存して戻る"}
         </Button>
         <Button
           type="button"
-          onClick={onHost}
-          disabled={hosting}
+          onClick={() => setConfirmRemove(true)}
           style={{
             ...ghostPill,
-            fontSize: 15,
-            padding: "13px 22px",
-            border: "1.5px solid color-mix(in oklch, var(--plum) 40%, var(--line))",
-            color: "var(--plum-deep)",
+            marginLeft: "auto",
+            fontSize: 14,
+            padding: "12px 18px",
+            color: "var(--rose-deep)",
+            border: "1.5px solid color-mix(in oklch, var(--rose) 35%, var(--line))",
           }}
         >
-          {hosting ? "開始中…" : "このクイズでゲーム開始"}
+          クイズを削除
         </Button>
       </div>
 
-      <p style={{ color: "var(--ink-soft)", fontSize: 12, margin: "2px 0 0", lineHeight: 1.6 }}>
-        ※「ゲーム開始」は今の保存済み内容で始まります。変更したら先に保存してください。
-      </p>
+      <ConfirmDialogLayer open={confirmRemove}>
+        <ConfirmDialog
+          title="このクイズを削除しますか？"
+          description="この端末から削除します。共有した編集リンクを持つ人はまだ開けます。"
+          confirmLabel="削除"
+          cancelLabel="キャンセル"
+          confirmTone="rose"
+          pending={false}
+          onConfirm={onRemoveFromList}
+          onCancel={() => setConfirmRemove(false)}
+        />
+      </ConfirmDialogLayer>
     </EditorShell>
   );
 }

@@ -212,6 +212,7 @@ export type Database = {
           description: string | null
           edit_token: string
           id: string
+          is_demo: boolean
           is_published: boolean
           owner_id: string | null
           title: string
@@ -222,6 +223,7 @@ export type Database = {
           description?: string | null
           edit_token?: string
           id?: string
+          is_demo?: boolean
           is_published?: boolean
           owner_id?: string | null
           title: string
@@ -232,6 +234,7 @@ export type Database = {
           description?: string | null
           edit_token?: string
           id?: string
+          is_demo?: boolean
           is_published?: boolean
           owner_id?: string | null
           title?: string
@@ -401,6 +404,10 @@ export type Database = {
           edit_token: string
           quiz_id: string
         }[]
+      }
+      end_game: {
+        Args: { p_game_id: string; p_host_secret: string }
+        Returns: undefined
       }
       get_game_snapshot: { Args: { p_game_id: string }; Returns: Json }
       get_quiz_for_edit: {

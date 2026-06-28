@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 // Brand — the SINGLE source of truth for the puni logo lockup.
 //
@@ -15,7 +16,7 @@ export function BrandMark() {
   return (
     <Image
       src="/icon-192.png"
-      alt="puni"
+      alt={PRODUCT_NAME}
       width={BRAND_SIZE}
       height={BRAND_SIZE}
       priority
@@ -43,7 +44,7 @@ export function Brand({
 
   if (!href) return mark;
   return (
-    <a href={href} aria-label="puni — ホームへ" style={{ display: "inline-flex", textDecoration: "none" }}>
+    <a href={href} aria-label={`${PRODUCT_NAME} — ホームへ`} style={{ display: "inline-flex", textDecoration: "none" }}>
       {mark}
     </a>
   );

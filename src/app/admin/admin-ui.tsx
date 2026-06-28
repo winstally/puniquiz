@@ -3,36 +3,11 @@
 // rounded "p" mark) so admin feels like the same product. RSC-friendly: these
 // are plain components/objects with no client state.
 
-import Link from "next/link";
-import { BrandMark } from "@/components/Brand";
+import { Brand } from "@/components/Brand";
 import { pageShell } from "@/lib/layout";
+import { ghostPill, plumPill } from "@/lib/puni-button";
 
-export const plumPill: React.CSSProperties = {
-  color: "#fff",
-  border: "none",
-  height: "auto",
-  fontFamily: "var(--font-display)",
-  fontWeight: 700,
-  fontSize: 14,
-  padding: "11px 20px",
-  borderRadius: 999,
-  background:
-    "radial-gradient(120% 80% at 30% 18%, rgba(255,255,255,0.45), rgba(255,255,255,0) 55%), linear-gradient(158deg, var(--plum), var(--plum-deep))",
-  boxShadow: "0 6px 0 var(--plum-deep), 0 12px 20px -8px var(--plum)",
-};
-
-export const ghostPill: React.CSSProperties = {
-  color: "var(--ink)",
-  border: "1.5px solid var(--line)",
-  height: "auto",
-  background: "#fff",
-  fontFamily: "var(--font-display)",
-  fontWeight: 700,
-  fontSize: 14,
-  padding: "10px 18px",
-  borderRadius: 999,
-  boxShadow: "var(--shadow-card)",
-};
+export { ghostPill, plumPill };
 
 export const cardStyle: React.CSSProperties = {
   background: "#fff",
@@ -45,11 +20,10 @@ export const cardStyle: React.CSSProperties = {
 };
 
 export const eyebrowStyle: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 13,
   fontWeight: 700,
-  letterSpacing: 2,
+  letterSpacing: 1,
   color: "var(--ink-soft)",
-  textTransform: "uppercase",
 };
 
 export const inputStyle: React.CSSProperties = {
@@ -71,24 +45,63 @@ export const labelStyle: React.CSSProperties = {
 };
 
 export function AdminBrand() {
-  return (
-    <Link
-      href="/admin"
-      aria-label="puni studio"
-      style={{
-        display: "inline-flex",
-        textDecoration: "none",
-        color: "inherit",
-      }}
-    >
-      <BrandMark />
-    </Link>
-  );
+  return <Brand />;
 }
 
 // Shell wrapper used by every admin page: centered column, generous padding.
 export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
     <main style={pageShell}>{children}</main>
+  );
+}
+
+export function AdminInviteRequired({
+  reason,
+}: {
+  reason?: "invalid" | "missing_config";
+}) {
+  const title =
+    reason === "missing_config"
+      ? "招待キーが未設定です"
+      : "招待リンクが必要です";
+  const body =
+    reason === "missing_config"
+      ? "ADMIN_INVITE_TOKEN を設定してから管理画面を開いてください。"
+      : reason === "invalid"
+        ? "招待リンクが正しくありません。管理者から受け取ったURLを確認してください。"
+        : "管理者から受け取った招待URLで開いてください。参加者はPIN/QRからそのまま遊べます。";
+
+  return (
+    <AdminShell>
+      <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <header style={{ marginBottom: 28 }}>
+          <AdminBrand />
+        </header>
+        <section
+          style={{
+            ...cardStyle,
+            alignItems: "center",
+            textAlign: "center",
+            padding: "48px 24px",
+            gap: 12,
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+              fontSize: 22,
+              margin: 0,
+              color: "var(--ink)",
+            }}
+          >
+            {title}
+          </h2>
+          <p style={{ color: "var(--ink-soft)", fontSize: 14, margin: 0, lineHeight: 1.6 }}>
+            {body}
+          </p>
+        </section>
+      </div>
+    </AdminShell>
   );
 }

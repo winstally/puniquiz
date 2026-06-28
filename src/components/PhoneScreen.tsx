@@ -10,13 +10,17 @@ import {
   LobbyCard,
   LobbyHeader,
   LobbyHeroGlow,
+  LobbyReloadHint,
   LobbyWaitingHeading,
+  LOBBY_DOT_COLORS,
   PlayerIdentityPill,
+  PlayerLeaveButton,
   WaitingDots,
 } from "@/components/LobbyUi";
-import { Dessert } from "./Dessert";
-import { JellyButton } from "./JellyButton";
+import { AnswerRain } from "./AnswerRain";
+import { PlayerBoard } from "@/components/PlayerBoard";
 import { pageShell } from "@/lib/layout";
+import type { RoundPhase } from "@/lib/realtime/useGameState";
 
 // Player viewport — Brand + identity pill header; PIN lives in the lobby body only.
 function PhoneFrame({
@@ -25,12 +29,23 @@ function PhoneFrame({
   avatarInitial,
   avatarColor,
   connecting,
+  onLeave,
+  tint,
+  rain,
 }: {
   children: React.ReactNode;
   nickname: string;
   avatarInitial: string;
   avatarColor?: string | null;
   connecting?: boolean;
+  onLeave?: () => void;
+  /** Optional full-screen wash painted behind the whole frame (header + body),
+   *  fading into the page background. Used by the reveal so the tint has no
+   *  seams at the top, sides, or bottom. */
+  tint?: string;
+  /** Optional answer-candy image to rain + pile up across the whole frame,
+   *  behind the content (reveal only). */
+  rain?: string;
 }) {
   return (
     <div
@@ -41,17 +56,26 @@ function PhoneFrame({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
+        // The wash spans the entire frame (incl. behind the header) so there's
+        // no horizontal seam at the top; it fades to the page bg lower down.
+        backgroundImage: tint,
       }}
     >
-      <LobbyHeader>
-        <PlayerIdentityPill
-          nickname={nickname}
-          initial={avatarInitial}
-          color={avatarColor}
-          connecting={connecting}
-        />
-      </LobbyHeader>
-      {children}
+      {/* Candy rain fills the WHOLE frame at z-index 0 (behind the content). */}
+      {rain ? <AnswerRain src={rain} /> : null}
+      {/* Content sits above the rain so the header + answer stay visible. */}
+      <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <LobbyHeader>
+          {onLeave ? <PlayerLeaveButton onClick={onLeave} /> : null}
+          <PlayerIdentityPill
+            nickname={nickname}
+            initial={avatarInitial}
+            color={avatarColor}
+            connecting={connecting}
+          />
+        </LobbyHeader>
+        {children}
+      </div>
     </div>
   );
 }
@@ -60,6 +84,60 @@ function PhoneFrame({
 function LobbyLoadingDots() {
   const reduce = useReducedMotion();
   return <WaitingDots reduce={reduce} />;
+}
+
+// "次の問題を待っています" — shimmer text + small bouncing dots, shown inline
+// inside the reveal answer card (small 4px dots proportional to the 13px text so
+// the "…" reads as a typing indicator, not oversized blobs).
+function WaitingLine() {
+  const reduce = useReducedMotion();
+  return (
+    <span style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 6, marginTop: 2 }}>
+      <span className="puni-shimmer" style={{ fontSize: 12.5, fontWeight: 700 }}>
+        次の問題を待っています
+      </span>
+      <span aria-hidden style={{ display: "inline-flex", alignItems: "flex-end", gap: 3, paddingBottom: 3 }}>
+        {LOBBY_DOT_COLORS.map((c, i) => (
+          <motion.span
+            key={c}
+            animate={reduce ? undefined : { y: [0, -4, 0] }}
+            transition={
+              reduce
+                ? undefined
+                : { duration: 1.3, repeat: Infinity, repeatDelay: 0.25, ease: "easeInOut", delay: i * 0.18 }
+            }
+            style={{ width: 4, height: 4, borderRadius: "50%", background: c }}
+          />
+        ))}
+      </span>
+    </span>
+  );
+}
+
+// Player lead screen: big 3-2-1 during countdown, then "read the question".
+function PhoneCountdown({ phase, n }: { phase: "countdown" | "reading"; n: number }) {
+  const reduce = useReducedMotion();
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, textAlign: "center", padding: 24 }}>
+      {phase === "countdown" ? (
+        <motion.div
+          key={n}
+          initial={reduce ? false : { scale: 0.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 300, damping: 18 }}
+          style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 104, lineHeight: 1, color: "var(--plum)" }}
+        >
+          {n}
+        </motion.div>
+      ) : (
+        <>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>問題を読んでね</div>
+          <p style={{ margin: 0, color: "var(--ink-soft)", fontWeight: 500, fontSize: 14 }}>まもなく回答できます</p>
+          <WaitingDots reduce={reduce ?? false} />
+        </>
+      )}
+    </div>
+  );
 }
 
 export function PhoneScreen({
@@ -75,6 +153,8 @@ export function PhoneScreen({
   // --- New optional state props (backward compatible) ----------------------
   /** Lobby: game hasn't started — show a calm waiting screen. */
   waiting = false,
+  /** Boot/sync stalled — suggest a full page reload. */
+  showReloadHint = false,
   /** Channel is reconnecting/errored — show a small "再接続中…" pill. */
   connecting = false,
   /** Game over — show this player's own final result (rank + points). */
@@ -87,6 +167,9 @@ export function PhoneScreen({
   points = 0,
   /** Number of ranked players (for "X人中 Y位" context). */
   totalPlayers = 0,
+  roundPhase = null,
+  countdownNumber = 0,
+  onLeave,
 }: {
   choices: Choice[];
   picked: number | null;
@@ -100,12 +183,19 @@ export function PhoneScreen({
   avatarColor?: string | null;
   pin?: string;
   waiting?: boolean;
+  showReloadHint?: boolean;
   connecting?: boolean;
   ended?: boolean;
   scoreboard?: boolean;
   rank?: number | null;
   points?: number;
   totalPlayers?: number;
+  /** Live-question sub-phase (countdown → reading → answering), null otherwise. */
+  roundPhase?: RoundPhase;
+  /** 3-2-1 number during the countdown sub-phase. */
+  countdownNumber?: number;
+  /** Cancel participation — leave the game and return home. */
+  onLeave?: () => void;
 }) {
   // correctId is only meaningful once revealed (-1 otherwise) — keep `correct`
   // undefined pre-reveal so the answer can never render early.
@@ -114,7 +204,7 @@ export function PhoneScreen({
   // First grapheme of the nickname as the avatar fallback when no explicit
   // initial is supplied. Falls back to the original hardcoded "な".
   const avatarInitial = initial ?? [...nickname][0] ?? "な";
-  const headerProps = { nickname, avatarInitial, avatarColor, connecting };
+  const headerProps = { nickname, avatarInitial, avatarColor, connecting, onLeave };
 
   // Translate JellyButton's numeric id back to the choice key for onPick.
   const handlePick = (id: number) => {
@@ -128,7 +218,13 @@ export function PhoneScreen({
   if (waiting) {
     return (
       <PhoneFrame {...headerProps}>
-        <WaitingScreen nickname={nickname} avatarInitial={avatarInitial} avatarColor={avatarColor} pin={pin} />
+        <WaitingScreen
+          nickname={nickname}
+          avatarInitial={avatarInitial}
+          avatarColor={avatarColor}
+          pin={pin}
+          showReloadHint={showReloadHint}
+        />
       </PhoneFrame>
     );
   }
@@ -164,105 +260,34 @@ export function PhoneScreen({
   }
 
   // -------------------------------------------------------------------------
-  // LIVE — the answer board (question_open / locked / reveal).
+  // IN-QUESTION — countdown / reading / answering / reveal, all via the shared
+  // PlayerBoard. The reveal tint + candy rain are painted by the frame behind it.
   // -------------------------------------------------------------------------
   return (
-    <PhoneFrame {...headerProps}>
+    <PhoneFrame
+      {...headerProps}
+      // On reveal, wash the WHOLE frame (behind the header too) and fade it into
+      // the page bg — so there's no seam at the top, sides, or bottom.
+      tint={
+        revealed && correct
+          ? isRight
+            ? "linear-gradient(180deg,#eafaf2 0%,#f7f5fb 60%)"
+            : "linear-gradient(180deg,#fdeef2 0%,#f7f5fb 60%)"
+          : undefined
+      }
+      // Rain the correct answer's candy across the whole frame on reveal.
+      rain={revealed && correct ? correct.icon : undefined}
+    >
 
-      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, textAlign: "center", fontSize: 22, margin: "10px 0 2px" }}>
-        あなたの番です
-      </h2>
-      <p style={{ textAlign: "center", color: "var(--ink-soft)", fontWeight: 500, fontSize: 13, margin: "0 0 18px" }}>
-        答えを選んでください
-      </p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "0 18px 8px", flex: 1 }}>
-        {choices.map((c, i) => (
-          <JellyButton
-            key={c.key}
-            choice={c}
-            index={i}
-            picked={picked === c.id}
-            dimmed={picked !== null && picked !== c.id}
-            onPick={handlePick}
-          />
-        ))}
-      </div>
-
-      <div style={{ padding: "18px 18px 20px", textAlign: "center", minHeight: 60 }}>
-        <AnimatePresence mode="wait">
-          {picked !== null ? (
-            <motion.p key="done" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--sage-deep)" }}>
-              送信しました。変更もできます
-            </motion.p>
-          ) : (
-            <motion.p key="hint" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ margin: 0, fontSize: 13, fontWeight: 500, color: "var(--ink-soft)" }}>
-              ひとつ選んでタップ
-            </motion.p>
-          )}
-        </AnimatePresence>
-      </div>
-
-      <AnimatePresence>
-        {revealed && correct && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            style={{
-              position: "absolute",
-              inset: 0,
-              zIndex: 10,
-              // Fully opaque base so the faded answer grid never bleeds through —
-              // a solid fill under the tinted gradient guarantees coverage.
-              backgroundColor: "#ffffff",
-              backgroundImage: isRight
-                ? "linear-gradient(180deg,#eafaf2,#ffffff)"
-                : "linear-gradient(180deg,#fdeef2,#ffffff)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 12,
-              padding: 24,
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.3, y: 20, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              transition={{ type: "spring", stiffness: 260, damping: 16 }}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}
-            >
-              <span
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 700,
-                  fontSize: 28,
-                  color: isRight ? "var(--sage-deep)" : "var(--rose-deep)",
-                }}
-              >
-                {isRight ? "正解！" : "おしい！"}
-              </span>
-              <span
-                style={{
-                  display: "grid",
-                  placeItems: "center",
-                  width: 116,
-                  height: 116,
-                  borderRadius: "50%",
-                  background: `color-mix(in srgb, ${correct.color} 16%, white)`,
-                }}
-              >
-                <Dessert type={correct.art} size={82} />
-              </span>
-              <span style={{ fontSize: 14, fontWeight: 500, color: "var(--ink-soft)" }}>
-                正解は <b style={{ color: "var(--ink)", fontFamily: "var(--font-display)" }}>{correct.label}</b>
-              </span>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <PlayerBoard
+        choices={choices}
+        picked={picked}
+        correctId={correctId}
+        revealed={revealed}
+        onPick={onPick}
+        roundPhase={roundPhase}
+        countdownNumber={countdownNumber}
+      />
     </PhoneFrame>
   );
 }
@@ -314,11 +339,13 @@ function WaitingScreen({
   avatarInitial,
   avatarColor,
   pin,
+  showReloadHint = false,
 }: {
   nickname: string;
   avatarInitial: string;
   avatarColor?: string | null;
   pin?: string;
+  showReloadHint?: boolean;
 }) {
   return (
     <LobbyBody>
@@ -349,6 +376,7 @@ function WaitingScreen({
             {pin ? <JoinCodeDisplay pin={pin} /> : null}
           </LobbyCard>
         </LobbyHeroGlow>
+        {showReloadHint ? <LobbyReloadHint /> : null}
       </div>
     </LobbyBody>
   );
@@ -524,7 +552,19 @@ function PersonalResult({
               {rank}
             </span>
           ) : (
-            <Dessert type="shortcake" size={72} />
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 700,
+                fontSize: 52,
+                lineHeight: 1,
+                color: "#fff",
+                opacity: 0.85,
+                textShadow: "0 2px 6px rgba(40,24,90,0.25)",
+              }}
+            >
+              —
+            </span>
           )}
         </span>
       </motion.div>

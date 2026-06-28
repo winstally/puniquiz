@@ -31,6 +31,12 @@ export type UseHostController = {
   setLock: (locked: boolean) => Promise<void>;
   /** Abort an in-flight game back to the lobby (clears rounds/scores). */
   resetToLobby: () => Promise<void>;
+  /** From the lobby, warm up with the demo first (real quiz continues after). */
+  startDemo: () => Promise<void>;
+  /** After ending, continue the SAME game with the queued next quiz (→ lobby). */
+  advanceQuiz: () => Promise<void>;
+  /** End the whole session — set state to ended for everyone (host quits). */
+  end: () => Promise<void>;
 };
 
 export function useHostController(
@@ -117,5 +123,37 @@ export function useHostController(
       "ロビーに戻せませんでした",
     );
 
-  return { pending, start: next, next, reveal, setLock, resetToLobby };
+  const startDemo = () =>
+    run(
+      (supabase) =>
+        // host_start_demo is newer than the generated Database types; cast the call.
+        supabase.rpc("host_start_demo" as never, {
+          p_game_id: gameId,
+          p_host_secret: hostSecret!,
+        } as never),
+      "デモを開始できませんでした",
+    );
+
+  const advanceQuiz = () =>
+    run(
+      (supabase) =>
+        // advance_quiz is newer than the generated Database types; cast the call.
+        supabase.rpc("advance_quiz" as never, {
+          p_game_id: gameId,
+          p_host_secret: hostSecret!,
+        } as never),
+      "次のクイズに進めませんでした",
+    );
+
+  const end = () =>
+    run(
+      (supabase) =>
+        supabase.rpc("end_game", {
+          p_game_id: gameId,
+          p_host_secret: hostSecret!,
+        }),
+      "ゲームを中止できませんでした",
+    );
+
+  return { pending, start: next, next, reveal, setLock, resetToLobby, startDemo, advanceQuiz, end };
 }

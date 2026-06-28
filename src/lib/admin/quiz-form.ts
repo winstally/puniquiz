@@ -5,15 +5,14 @@
 //
 // The wire format is intentionally simple: forms post a JSON blob in a single
 // hidden field so we can carry the full nested quiz (title/description + an
-// ordered list of questions, each with 2–6 {key,label} choices and a
+// ordered list of questions, each with 4 {key,label} choices and a
 // correct_key). Server Actions parse + validate this blob, never trusting the
 // client shape.
 
-export const CHOICE_KEYS = ["a", "b", "c", "d", "e", "f"] as const;
+export const CHOICE_KEYS = ["a", "b", "c", "d"] as const;
 export type ChoiceKey = (typeof CHOICE_KEYS)[number];
 
-export const MIN_CHOICES = 2;
-export const MAX_CHOICES = 6;
+export const FIXED_CHOICE_COUNT = 4;
 export const MIN_TIME_LIMIT = 5;
 export const MAX_TIME_LIMIT = 120;
 export const MIN_POINTS = 100;
@@ -22,7 +21,6 @@ export const MAX_QUESTIONS = 50;
 
 export const TITLE_MAX = 80;
 export const DESCRIPTION_MAX = 280;
-export const EYEBROW_MAX = 40;
 export const QUESTION_TEXT_MAX = 200;
 export const CHOICE_LABEL_MAX = 80;
 
@@ -30,7 +28,7 @@ export const CHOICE_LABEL_MAX = 80;
 export const DEFAULT_TIME_LIMIT = 20;
 export const DEFAULT_POINTS_BASE = 1000;
 
-// Map a 0-based choice index to its canonical key (a/b/c/d/e/f).
+// Map a 0-based choice index to its canonical key (a/b/c/d).
 export function keyForIndex(index: number): ChoiceKey {
   return CHOICE_KEYS[index] ?? CHOICE_KEYS[CHOICE_KEYS.length - 1];
 }
@@ -41,15 +39,20 @@ export function keyForIndex(index: number): ChoiceKey {
 export type DraftChoice = {
   key: string;
   label: string;
+  image_url?: string | null;
+  image_file?: File | null;
+  image_preview_url?: string | null;
 };
 
 export type DraftQuestion = {
-  eyebrow: string;
   text: string;
   time_limit_seconds: number;
   points_base: number;
   choices: DraftChoice[];
   correct_key: string;
+  media_url?: string | null;
+  media_file?: File | null;
+  media_preview_url?: string | null;
 };
 
 export type DraftQuiz = {
@@ -91,8 +94,8 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 
 // Parse + validate the JSON blob posted by the editor form. This is the single
 // server-side trust boundary for quiz authoring: it normalizes choice keys to
-// the canonical a/b/c… sequence (so the client can't smuggle weird keys),
-// enforces 2–6 choices, a valid correct_key, non-empty text, and clamps numeric
+// the canonical a/b/c/d sequence (so the client can't smuggle weird keys),
+// enforces exactly 4 choices, a valid correct_key, non-empty text, and clamps numeric
 // fields into safe ranges. Returns a Japanese error message on failure.
 export function parseQuizPayload(raw: string): ParseResult {
   let data: unknown;
@@ -139,11 +142,6 @@ export function parseQuizPayload(raw: string): ParseResult {
     if (text.length > QUESTION_TEXT_MAX)
       return { ok: false, error: `${where}の問題文が長すぎます` };
 
-    const eyebrowRaw = typeof qo.eyebrow === "string" ? qo.eyebrow.trim() : "";
-    if (eyebrowRaw.length > EYEBROW_MAX)
-      return { ok: false, error: `${where}の見出しが長すぎます` };
-    const eyebrow = eyebrowRaw.length > 0 ? eyebrowRaw : null;
-
     const time_limit_seconds = clampInt(
       qo.time_limit_seconds,
       MIN_TIME_LIMIT,
@@ -158,13 +156,13 @@ export function parseQuizPayload(raw: string): ParseResult {
     );
 
     const rawChoices = Array.isArray(qo.choices) ? qo.choices : [];
-    if (rawChoices.length < MIN_CHOICES || rawChoices.length > MAX_CHOICES)
+    if (rawChoices.length !== FIXED_CHOICE_COUNT)
       return {
         ok: false,
-        error: `${where}の選択肢は${MIN_CHOICES}〜${MAX_CHOICES}個にしてください`,
+        error: `${where}の答えは4つ入力してください`,
       };
 
-    // Normalize keys to the canonical a/b/c… sequence by position. The client's
+    // Normalize keys to the canonical a/b/c/d sequence by position. The client's
     // declared correct_key is matched against the *original* key it sent, then
     // re-pointed to the canonical key — so reordering on the client is safe.
     const choices: { key: string; label: string }[] = [];
@@ -193,7 +191,7 @@ export function parseQuizPayload(raw: string): ParseResult {
 
     questions.push({
       position: i,
-      eyebrow,
+      eyebrow: null,
       text,
       time_limit_seconds,
       points_base,

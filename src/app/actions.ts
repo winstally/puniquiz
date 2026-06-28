@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import type { CreateGameResult } from "@/lib/realtime/events";
 import { hostSecretCookieName, HOST_COOKIE_MAX_AGE } from "@/lib/host-cookie";
 import { pickAvatarColor } from "@/lib/avatar";
+import { requireAdminInviteAccess } from "@/lib/admin/invite-server";
+import type { CreateQuizRow, EditQuestion } from "@/lib/admin/edit-link";
 
 // Default quiz "slug" (we use quizzes.title as the human slug). The host always
 // plays a quiz they OWN (create_game enforces ownership), so an anonymous host
@@ -16,7 +18,6 @@ type QuizTemplate = {
   description: string | null;
   questions: ReadonlyArray<{
     position: number;
-    eyebrow: string | null;
     text: string;
     choices: ReadonlyArray<{ key: string; label: string }>;
     correct_key: string;
@@ -34,7 +35,6 @@ const QUIZ_TEMPLATES: Record<string, QuizTemplate> = {
     questions: [
       {
         position: 0,
-        eyebrow: "Q1 / 3",
         text: "次のうち、ティラミスはどれ？",
         choices: [
           { key: "a", label: "ティラミス" },
@@ -48,7 +48,6 @@ const QUIZ_TEMPLATES: Record<string, QuizTemplate> = {
       },
       {
         position: 1,
-        eyebrow: "Q2 / 3",
         text: "カラメルソースがかかっているのは？",
         choices: [
           { key: "a", label: "ティラミス" },
@@ -62,7 +61,6 @@ const QUIZ_TEMPLATES: Record<string, QuizTemplate> = {
       },
       {
         position: 2,
-        eyebrow: "Q3 / 3",
         text: "いちごがのっているのは？",
         choices: [
           { key: "a", label: "ティラミス" },
@@ -132,7 +130,7 @@ async function resolveOwnedQuizId(
     template.questions.map((q) => ({
       quiz_id: quiz.id,
       position: q.position,
-      eyebrow: q.eyebrow,
+      eyebrow: null,
       text: q.text,
       choices: q.choices.map((c) => ({ key: c.key, label: c.label })),
       correct_key: q.correct_key,
@@ -147,6 +145,46 @@ async function resolveOwnedQuizId(
 
 // createGameAction — host path. Ensures session, resolves an owned quiz, calls
 // create_game, persists host_secret in an httpOnly cookie, returns redirect.
+// startDemoGameAction — host the curated demo quiz (is_demo) directly. create_game
+// allows hosting any published quiz, so the protected demo is hosted as-is (no
+// per-host copy). Powers the landing "デモを試す" CTA.
+export async function startDemoGameAction(): Promise<
+  ActionResult<{ gameId: string; pin: string; redirect: string }>
+> {
+  try {
+    const supabase = await createClient();
+    const uid = await ensureUserId(supabase);
+    if (!uid) return { ok: false, error: "サインインに失敗しました" };
+
+    const { data: demo, error: selErr } = await supabase
+      .from("quizzes")
+      .select("id")
+      .eq("is_demo", true)
+      .eq("is_published", true)
+      .order("created_at")
+      .limit(1)
+      .maybeSingle();
+    if (selErr) return { ok: false, error: selErr.message };
+    if (!demo) return { ok: false, error: "デモが見つかりません" };
+
+    const { data, error } = await supabase.rpc("create_game", { p_quiz_id: demo.id });
+    if (error) return { ok: false, error: error.message };
+
+    const row = ((data ?? []) as CreateGameResult[])[0];
+    if (!row) return { ok: false, error: "ゲームを作成できませんでした" };
+
+    await setHostSecretCookie(row.game_id, row.host_secret);
+    return {
+      ok: true,
+      gameId: row.game_id,
+      pin: row.pin,
+      redirect: `/host/${row.game_id}`,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "不明なエラー" };
+  }
+}
+
 export async function createGameAction(
   quizSlug?: string,
 ): Promise<ActionResult<{ gameId: string; pin: string; redirect: string }>> {
@@ -287,17 +325,65 @@ export async function joinGameAction(
 }
 
 // ===========================================================================
-// /admin — login-free quiz authoring. There is NO owner session here: a quiz is
-// edited purely by holding its secret edit-link (?t={edit_token}). All quiz
-// reads/writes happen client-side through SECURITY DEFINER RPCs (create_quiz,
-// get_quiz_for_edit, save_quiz) that validate the token, granted to anon.
-//
-// The ONE server action below is host-start: it needs the httpOnly host_secret
-// cookie, which can only be set server-side. It hosts ANY quiz id — link-quizzes
-// are created published + ownerless, and create_game allows hosting when the
-// quiz is_published OR owned by the caller, so an anonymous request can host a
-// link-quiz it doesn't own.
+// /admin — invite-gated quiz authoring.
 // ===========================================================================
+
+export async function createQuizAction(): Promise<
+  ActionResult<{ quizId: string; editToken: string; redirect: string }>
+> {
+  try {
+    await requireAdminInviteAccess();
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc(
+      "create_quiz" as never,
+      { p_title: "新しいクイズ", p_description: null } as never,
+    );
+    if (error) return { ok: false, error: error.message };
+
+    const rows = (data ?? []) as CreateQuizRow[];
+    const row = Array.isArray(rows) ? rows[0] : (data as CreateQuizRow);
+    if (!row?.quiz_id || !row?.edit_token) {
+      return { ok: false, error: "クイズを作成できませんでした" };
+    }
+
+    return {
+      ok: true,
+      quizId: row.quiz_id,
+      editToken: row.edit_token,
+      redirect: `/admin/quizzes/${row.quiz_id}?t=${row.edit_token}`,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "不明なエラー" };
+  }
+}
+
+export async function saveQuizAction(input: {
+  quizId: string;
+  token: string;
+  title: string;
+  description: string | null;
+  questions: EditQuestion[];
+}): Promise<ActionResult<object>> {
+  try {
+    await requireAdminInviteAccess();
+    const supabase = await createClient();
+    const { error } = await supabase.rpc(
+      "save_quiz" as never,
+      {
+        p_quiz_id: input.quizId,
+        p_edit_token: input.token,
+        p_title: input.title,
+        p_description: input.description,
+        p_is_published: true,
+        p_questions: input.questions,
+      } as never,
+    );
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "不明なエラー" };
+  }
+}
 
 // startGameForQuizAction — host-start a quiz by id (typically a link-quiz the
 // caller reached via its edit-link). Ensures an anonymous session (needed so the
@@ -305,16 +391,40 @@ export async function joinGameAction(
 // and persists host_secret in the same httpOnly cookie createGameAction uses.
 export async function startGameForQuizAction(
   quizId: string,
+  withDemo = false,
 ): Promise<ActionResult<{ gameId: string; pin: string; redirect: string }>> {
   try {
+    await requireAdminInviteAccess();
     if (!quizId) return { ok: false, error: "クイズが見つかりません" };
     const supabase = await createClient();
     const uid = await ensureUserId(supabase);
     if (!uid) return { ok: false, error: "サインインに失敗しました" };
 
+    // "デモから始める": prepend the curated demo as quiz #1 of a chain, so the
+    // real quiz runs as the continuation (same PIN/players) once the demo ends.
+    let firstQuizId = quizId;
+    let nextQuizId: string | null = null;
+    if (withDemo) {
+      const { data: demo } = await supabase
+        .from("quizzes")
+        .select("id")
+        .eq("is_demo", true)
+        .eq("is_published", true)
+        .order("created_at")
+        .limit(1)
+        .maybeSingle();
+      // Demo missing → just start the real quiz directly (graceful fallback).
+      if (demo?.id) {
+        firstQuizId = demo.id;
+        nextQuizId = quizId;
+      }
+    }
+
     const { data, error } = await supabase.rpc("create_game", {
-      p_quiz_id: quizId,
-    });
+      // p_next_quiz_id is newer than the generated Database types; cast the args.
+      p_quiz_id: firstQuizId,
+      p_next_quiz_id: nextQuizId,
+    } as never);
     if (error) return { ok: false, error: error.message };
 
     const rows = (data ?? []) as CreateGameResult[];

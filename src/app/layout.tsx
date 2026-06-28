@@ -5,11 +5,12 @@ import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { Footer } from "@/components/Footer";
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from "@/lib/brand";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata: Metadata = {
-  title: "puni — live quiz lounge",
+  title: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
   description: "ホストの問題にみんなで投票する、大人かわいいライブクイズ",
 };
 
@@ -35,7 +36,7 @@ export default function RootLayout({
       <body>
         {children}
         <Footer />
-        <Toaster position="top-center" />
+        <Toaster />
       </body>
     </html>
   );

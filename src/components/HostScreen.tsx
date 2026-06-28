@@ -1,12 +1,13 @@
 "use client";
 
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Choice } from "@/lib/quiz";
 import { ROUND_SECONDS } from "@/lib/quiz";
 import { jellyStyle } from "@/lib/jelly";
 import { Card } from "@/components/ui/card";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { Dessert, QuizHero } from "./Dessert";
+import { HostChoiceCard } from "@/components/HostChoiceCard";
+import type { RoundPhase } from "@/lib/realtime/useGameState";
 
 // A roster avatar (driven by Presence). Falls back to the original demo crowd
 // when no roster is supplied so the standalone visual stays identical.
@@ -111,14 +112,17 @@ function RevealCard({
         正解は…
       </span>
 
-      <motion.span
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ type: "spring", stiffness: 300, damping: 13, delay: 0.18 }}
-        style={{ position: "relative", zIndex: 2, display: "grid", placeItems: "center", width: 132, height: 132, borderRadius: "50%", background: "#fff", boxShadow: "inset 0 3px 8px rgba(0,0,0,0.08)" }}
-      >
-        <Dessert type={correct.art} size={96} />
-      </motion.span>
+      {correct.image_url ? (
+        <motion.span
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 300, damping: 13, delay: 0.18 }}
+          style={{ position: "relative", zIndex: 2, display: "grid", placeItems: "center", width: 132, height: 132, borderRadius: "50%", overflow: "hidden", background: "#fff", boxShadow: "inset 0 3px 8px rgba(0,0,0,0.08)" }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={correct.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </motion.span>
+      ) : null}
 
       <span style={{ position: "relative", zIndex: 2, fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 30, color: "#fff" }}>
         {correct.label}
@@ -130,10 +134,58 @@ function RevealCard({
   );
 }
 
+// Host lead view: 3-2-1 countdown, then the question alone (read it) — choices
+// and the answer timer only appear once answering opens.
+function HostLead({
+  phase,
+  n,
+  question,
+  media,
+}: {
+  phase: "countdown" | "reading";
+  n: number;
+  question: string;
+  media: string | null;
+}) {
+  const reduce = useReducedMotion();
+  if (phase === "countdown") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "44px 0 56px" }}>
+        <span style={{ color: "var(--ink-soft)", fontWeight: 700, fontSize: 15, letterSpacing: 3 }}>まもなく開始</span>
+        <motion.div
+          key={n}
+          // Deterministic initial (NOT reduce-gated) so the SSR'd landing demo and
+          // the client's first render match for reduced-motion users; the snap is
+          // handled by the transition instead.
+          initial={{ scale: 0.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 16 }}
+          style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "clamp(96px,18vw,176px)", lineHeight: 1, color: "var(--plum)" }}
+        >
+          {n}
+        </motion.div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, color: "var(--ink)", lineHeight: 1.26, margin: 0, textWrap: "balance", textAlign: "center", fontSize: "clamp(26px,3.6vw,40px)" }}>
+        {question}
+      </h2>
+      {media ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={media} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "contain", borderRadius: 18, background: "var(--track)" }} />
+      ) : null}
+      <p style={{ textAlign: "center", color: "var(--ink-soft)", fontWeight: 600, fontSize: 15, margin: 0 }}>もうすぐ回答できます…</p>
+    </div>
+  );
+}
+
 export function HostScreen({
   choices,
   eyebrow,
   question,
+  media = null,
   votes,
   seconds,
   totalSeconds = ROUND_SECONDS,
@@ -141,10 +193,14 @@ export function HostScreen({
   revealed,
   roster = DEFAULT_PLAYERS,
   count = 24,
+  roundPhase = null,
+  countdownNumber = 0,
 }: {
   choices: Choice[];
   eyebrow: string;
   question: string;
+  /** Optional question image (public Storage URL). */
+  media?: string | null;
   votes: number[];
   seconds: number;
   /** Authoritative round length for the ring ratio (defaults to ROUND_SECONDS). */
@@ -156,6 +212,10 @@ export function HostScreen({
   roster?: RosterAvatar[];
   /** Authoritative connected player count (from Presence). */
   count?: number;
+  /** Live-question sub-phase (countdown → reading → answering), null otherwise. */
+  roundPhase?: RoundPhase;
+  /** 3-2-1 number during the countdown sub-phase. */
+  countdownNumber?: number;
 }) {
   const total = votes.reduce((a, b) => a + b, 0);
 
@@ -202,9 +262,26 @@ export function HostScreen({
               <PlayerRow roster={roster} count={count} />
             </div>
 
+            {roundPhase === "countdown" || roundPhase === "reading" ? (
+              <HostLead phase={roundPhase} n={countdownNumber} question={question} media={media} />
+            ) : (
+              <>
             <h2 style={{ ...headingStyle, fontSize: "clamp(24px,3.1vw,34px)" }}>{question}</h2>
 
-            <QuizHero />
+            {media ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={media}
+                alt=""
+                style={{
+                  width: "100%",
+                  maxHeight: 300,
+                  objectFit: "contain",
+                  borderRadius: 18,
+                  background: "var(--track)",
+                }}
+              />
+            ) : null}
 
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ position: "relative", width: 60, height: 60, flex: "0 0 auto" }}>
@@ -247,64 +324,12 @@ export function HostScreen({
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))", gap: 16 }}>
-              {choices.map((c, i) => {
-                const v = votes[c.id];
-                return (
-                  <motion.div
-                    key={c.id}
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ type: "spring", stiffness: 320, damping: 26, delay: 0.05 * i }}
-                    whileHover={{ y: -5 }}
-                    style={{
-                      position: "relative",
-                      background: `linear-gradient(180deg, #ffffff, color-mix(in srgb, ${c.color} 5%, #ffffff))`,
-                      borderRadius: 22,
-                      padding: "20px 16px 16px",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 12,
-                      boxShadow: `var(--shadow-card), 0 16px 30px -20px ${c.color}`,
-                      outline: `1px solid color-mix(in srgb, ${c.color} 16%, var(--hairline))`,
-                      outlineOffset: -1,
-                    }}
-                  >
-                    <span style={{ position: "absolute", top: 16, right: 16, fontSize: 12, fontWeight: 700, color: "var(--ink-soft)", fontVariantNumeric: "tabular-nums" }}>
-                      {v}票
-                    </span>
-
-                    <div style={{ position: "relative", display: "grid", placeItems: "center", marginTop: 4 }}>
-                      <span
-                        aria-hidden
-                        style={{
-                          position: "absolute",
-                          width: 104,
-                          height: 104,
-                          borderRadius: "50%",
-                          background: `radial-gradient(circle, color-mix(in srgb, ${c.color} 22%, white) 28%, rgba(255,255,255,0) 72%)`,
-                        }}
-                      />
-                      <span style={{ position: "relative", filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.12))" }}>
-                        <Dessert type={c.art} size={66} />
-                      </span>
-                    </div>
-
-                    <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 20, color: "var(--ink)", textAlign: "center", lineHeight: 1.15 }}>
-                      {c.label}
-                    </span>
-
-                    <div style={{ width: "100%", height: 7, borderRadius: 999, background: "rgba(20,12,45,0.07)", overflow: "hidden", marginTop: 2 }}>
-                      <motion.div
-                        animate={{ width: `${total ? (v / total) * 100 : 0}%` }}
-                        transition={{ type: "spring", stiffness: 150, damping: 20 }}
-                        style={{ height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${c.color}, ${c.deep})`, boxShadow: `0 0 8px -2px ${c.color}` }}
-                      />
-                    </div>
-                  </motion.div>
-                );
-              })}
+              {choices.map((c, i) => (
+                <HostChoiceCard key={c.id} choice={c} votes={votes[c.id] ?? 0} total={total} index={i} />
+              ))}
             </div>
+              </>
+            )}
           </motion.div>
         ) : (
           <motion.div
@@ -321,8 +346,6 @@ export function HostScreen({
             </div>
 
             <h2 style={{ ...headingStyle, fontSize: "clamp(22px,2.8vw,30px)", textAlign: "center", width: "100%" }}>{question}</h2>
-
-            <QuizHero maxWidth={360} />
 
             {(() => {
               // correctId is only meaningful in the revealed branch; guard the

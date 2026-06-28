@@ -15,7 +15,7 @@
 //   seconds   = secondsLeft        totalSeconds = question.timeLimitSeconds
 //   revealed  = state === "reveal"
 //   correctId = revealed ? choices.findIndex(key === correctKey) : -1
-//   eyebrow   = question.eyebrow ?? `Q${position + 1}`
+//   eyebrow   = `Q${position + 1}`
 //   roster/count ← presence (host excluded; usePresence filters role==="player")
 //
 // Lobby / scoreboard / ended are rendered as their own host views; the question
@@ -24,8 +24,9 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { toast } from "sonner";
+import { Lock, LockOpen, LogOut, Play } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { createGameAction } from "@/app/actions";
 import { hydrateChoices } from "@/lib/quiz";
@@ -36,6 +37,8 @@ import { useHostController } from "@/lib/realtime/useHostController";
 import type { RosterAvatar } from "@/components/HostScreen";
 import { HostScreen } from "@/components/HostScreen";
 import { JoinQr } from "@/components/JoinQr";
+import { PuniButton } from "@/components/PuniButton";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   LobbyBody,
   LobbyHeader,
@@ -46,7 +49,6 @@ import {
 import { avatarColor, avatarInitial } from "@/lib/avatar";
 import { Podium } from "@/components/Podium";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { Button } from "@/components/ui/button";
 import { readHostSecret } from "@/app/host/[gameId]/host-secret-action";
 
 export function HostController({ gameId }: { gameId: string }) {
@@ -106,8 +108,7 @@ export function HostController({ gameId }: { gameId: string }) {
       ? choices.findIndex((c) => c.key === correctKey)
       : -1;
   const totalSeconds = game.question?.time_limit_seconds ?? undefined;
-  // DB questions carry a human eyebrow ("Q1 / 3"); fall back to the position.
-  const eyebrow = game.question?.eyebrow ?? `Q${position + 1}`;
+  const eyebrow = `Q${position + 1}`;
 
   // Presence roster → HostScreen avatar chips + authoritative connected count.
   const roster: RosterAvatar[] = presence.roster.map((p) => ({
@@ -130,15 +131,34 @@ export function HostController({ gameId }: { gameId: string }) {
     for (const p of here) {
       if (seen.has(p.player_id)) continue;
       seen.add(p.player_id);
-      toast(`${p.nickname || "ゲスト"}さんが参加しました 🎉`);
+      toast.success(`${p.nickname || "ゲスト"}さんが参加しました 🎉`);
     }
   }, [presence.roster]);
 
   const isHost = secretResolved && Boolean(hostSecret);
+  const isSpectator = secretResolved && !hostSecret;
+  const router = useRouter();
+
+  // No host cookie → this URL isn't for them; send to join flow on the landing page.
+  useEffect(() => {
+    if (!isSpectator) return;
+
+    const redirect = () => {
+      const href = game.pin ? `/?join=${encodeURIComponent(game.pin)}` : "/";
+      router.replace(href);
+    };
+
+    if (game.pin || game.hydrated) {
+      redirect();
+      return;
+    }
+
+    const id = window.setTimeout(redirect, 1500);
+    return () => window.clearTimeout(id);
+  }, [isSpectator, game.pin, game.hydrated, router]);
 
   // End-of-game host actions: start a brand-new game (same quiz → new PIN, like
   // Kahoot) or return to the landing page.
-  const router = useRouter();
   const [restarting, startRestart] = useTransition();
   const restart = () =>
     startRestart(async () => {
@@ -147,11 +167,47 @@ export function HostController({ gameId }: { gameId: string }) {
       else toast.error(res.error);
     });
   const goHome = () => router.push("/");
+  // Quiz chaining: when this game ended but a next quiz is queued (e.g. the demo
+  // just finished), continue the SAME game with it — advance_quiz resets scores
+  // and returns everyone to the lobby for the next quiz (same PIN / players).
+  const advanceQuiz = () => {
+    void host.advanceQuiz();
+  };
+  // Lobby warm-up: prepend the curated demo and open its first question. When the
+  // demo ends, advance_quiz continues the SAME game with the real quiz. Decided
+  // here (after players gather / registration closed), not at game creation.
+  const startDemo = () => {
+    void host.startDemo();
+  };
+  // Host quits the whole session: end it for everyone, then return home. The
+  // entry point lives in the header (mirrors the player's 退出), with a confirm.
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const endGame = () => {
+    void host.end().then(goHome);
+  };
 
   // The body renders immediately with empty data (pin/roster/count fill in when
   // the snapshot lands) — no "準備中" gate. We still wait for hydration before
   // showing the host control bar, so its phase action (start/reveal/next) is right.
   const loading = !game.hydrated;
+
+  if (isSpectator) {
+    return (
+      <main style={pageShell}>
+        <p
+          style={{
+            margin: "48px auto",
+            textAlign: "center",
+            color: "var(--ink-soft)",
+            fontWeight: 600,
+            fontSize: 14,
+          }}
+        >
+          参加ページへ移動しています…
+        </p>
+      </main>
+    );
+  }
 
   return (
     <main style={pageShell}>
@@ -159,6 +215,7 @@ export function HostController({ gameId }: { gameId: string }) {
         status={game.channelStatus}
         count={count}
         roster={roster}
+        onEndGame={isHost && state !== "ended" ? () => setShowEndConfirm(true) : undefined}
       />
 
       {state === "lobby" ? (
@@ -172,8 +229,11 @@ export function HostController({ gameId }: { gameId: string }) {
           choices={choices}
           eyebrow={eyebrow}
           question={game.question?.text ?? ""}
+          media={game.question?.media_url ?? null}
           votes={votes}
           seconds={secondsLeft}
+          roundPhase={game.roundPhase}
+          countdownNumber={game.countdownNumber}
           totalSeconds={totalSeconds}
           correctId={correctId}
           revealed={revealed}
@@ -182,14 +242,16 @@ export function HostController({ gameId }: { gameId: string }) {
         />
       )}
 
-      {secretResolved ? (
-        isHost ? (
+      {secretResolved && isHost ? (
           <HostControls
             state={state}
             pending={host.pending || restarting}
             ready={!loading}
             registrationLocked={game.registrationLocked}
+            hasNext={game.hasNext}
             onStart={host.start}
+            onStartDemo={startDemo}
+            onAdvanceQuiz={advanceQuiz}
             onNext={host.next}
             onReveal={host.reveal}
             onRestart={restart}
@@ -197,10 +259,25 @@ export function HostController({ gameId }: { gameId: string }) {
             onToggleLock={host.setLock}
             onResetToLobby={host.resetToLobby}
           />
-        ) : (
-          <SpectatorNote />
-        )
       ) : null}
+
+      <AnimatePresence>
+        {showEndConfirm ? (
+          <ConfirmDialog
+            title="ゲームを中止しますか？"
+            description="参加者の画面にも終了が表示され、ホームに戻ります。"
+            confirmLabel="中止する"
+            cancelLabel="やめる"
+            pending={host.pending}
+            confirmTone="rose"
+            onCancel={() => setShowEndConfirm(false)}
+            onConfirm={() => {
+              setShowEndConfirm(false);
+              endGame();
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
     </main>
   );
 }
@@ -212,13 +289,27 @@ function HostHeader({
   status,
   count,
   roster,
+  onEndGame,
 }: {
   status: string;
   count: number;
   roster: RosterAvatar[];
+  onEndGame?: () => void;
 }) {
   return (
     <LobbyHeader>
+      {onEndGame ? (
+        <PuniButton
+          variant="soft"
+          size="sm"
+          tone="rose"
+          icon={LogOut}
+          onClick={onEndGame}
+          aria-label="ゲームを中止する"
+        >
+          ゲームを中止
+        </PuniButton>
+      ) : null}
       <PresencePill status={status} roster={roster} count={count} />
     </LobbyHeader>
   );
@@ -326,140 +417,6 @@ function ScoreboardView({
 }
 
 // -----------------------------------------------------------------------------
-// ConfirmDialog — lightweight on-brand confirm modal (no Radix dep). Backdrop +
-// centered card, Escape / backdrop-click to cancel. Used to gate "ゲーム開始".
-// -----------------------------------------------------------------------------
-function ConfirmDialog({
-  title,
-  description,
-  confirmLabel,
-  cancelLabel,
-  pending,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  description?: string;
-  confirmLabel: string;
-  cancelLabel: string;
-  pending: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const reduce = useReducedMotion();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
-  return (
-    <motion.div
-      role="presentation"
-      onClick={onCancel}
-      initial={reduce ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 60,
-        background: "rgba(20,12,45,0.45)",
-        display: "grid",
-        placeItems: "center",
-        padding: 20,
-      }}
-    >
-      <motion.div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
-        onClick={(e) => e.stopPropagation()}
-        initial={reduce ? false : { opacity: 0, scale: 0.92, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96 }}
-        transition={{ type: "spring", stiffness: 320, damping: 26 }}
-        style={{
-          width: "min(100%, 380px)",
-          background: "#fff",
-          borderRadius: 24,
-          border: "1px solid var(--hairline)",
-          boxShadow: "var(--shadow-card-lift)",
-          padding: "28px 26px 22px",
-          textAlign: "center",
-        }}
-      >
-        <h3
-          id="confirm-dialog-title"
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: 21,
-            margin: "0 0 8px",
-            color: "var(--ink)",
-          }}
-        >
-          {title}
-        </h3>
-        {description ? (
-          <p style={{ margin: "0 0 22px", color: "var(--ink-soft)", fontSize: 14, fontWeight: 500, lineHeight: 1.6 }}>
-            {description}
-          </p>
-        ) : (
-          <div style={{ height: 14 }} />
-        )}
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <Button
-            type="button"
-            onClick={onCancel}
-            disabled={pending}
-            style={{
-              height: "auto",
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 15,
-              padding: "12px 22px",
-              borderRadius: 999,
-              background: "#fff",
-              color: "var(--ink-soft)",
-              border: "1px solid var(--hairline)",
-              boxShadow: "var(--shadow-soft)",
-            }}
-          >
-            {cancelLabel}
-          </Button>
-          <Button
-            type="button"
-            autoFocus
-            onClick={onConfirm}
-            disabled={pending}
-            style={{
-              height: "auto",
-              color: "#fff",
-              border: "none",
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 15,
-              padding: "12px 28px",
-              borderRadius: 999,
-              background:
-                "radial-gradient(120% 80% at 30% 18%, rgba(255,255,255,0.45), rgba(255,255,255,0) 55%), linear-gradient(158deg, var(--plum), var(--plum-deep))",
-              boxShadow: "0 6px 0 var(--plum-deep), 0 12px 20px -8px var(--plum)",
-              opacity: pending ? 0.6 : 1,
-            }}
-          >
-            {pending ? "…" : confirmLabel}
-          </Button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-// -----------------------------------------------------------------------------
 // Host control bar — drives the state machine. Label adapts to the phase.
 // -----------------------------------------------------------------------------
 function HostControls({
@@ -467,7 +424,10 @@ function HostControls({
   pending,
   ready,
   registrationLocked,
+  hasNext,
   onStart,
+  onStartDemo,
+  onAdvanceQuiz,
   onNext,
   onReveal,
   onRestart,
@@ -479,7 +439,13 @@ function HostControls({
   pending: boolean;
   ready: boolean;
   registrationLocked: boolean;
+  /** A next quiz is queued — the ended screen offers to continue the same game. */
+  hasNext: boolean;
   onStart: () => void;
+  /** Lobby: warm up with the demo first (real quiz continues after it ends). */
+  onStartDemo: () => void;
+  /** Continue the same game with the queued next quiz (e.g. demo → real). */
+  onAdvanceQuiz: () => void;
   onNext: () => void;
   onReveal: () => void;
   onRestart: () => void;
@@ -509,6 +475,8 @@ function HostControls({
 
   switch (state) {
     case "lobby":
+      // The start confirm offers "デモから始める" as a warm-up option (inside the
+      // dialog, not a separate button) — see showStartConfirm below.
       primary = { label: "ゲーム開始", onClick: onStart, confirm: true };
       break;
     case "question_open":
@@ -525,8 +493,15 @@ function HostControls({
       primary = { label: "次の問題へ", onClick: onNext };
       break;
     case "ended":
-      primary = { label: "もう一度遊ぶ", onClick: onRestart };
-      secondary = { label: "ホームに戻る", onClick: onHome };
+      if (hasNext) {
+        // A next quiz is queued (e.g. the demo just finished) → continue the
+        // same game with it: same PIN, same players, fresh scores.
+        primary = { label: "本番に進む →", onClick: onAdvanceQuiz };
+        secondary = { label: "ホームに戻る", onClick: onHome };
+      } else {
+        primary = { label: "もう一度遊ぶ", onClick: onRestart };
+        secondary = { label: "ホームに戻る", onClick: onHome };
+      }
       break;
   }
 
@@ -546,94 +521,54 @@ function HostControls({
       }}
     >
       {state === "lobby" ? (
-        <Button
+        <PuniButton
           type="button"
+          variant="soft"
+          size="md"
+          tone={registrationLocked ? "rose" : "default"}
+          icon={registrationLocked ? LockOpen : Lock}
           disabled={pending || !ready}
           onClick={() => onToggleLock(!registrationLocked)}
-          style={{
-            height: "auto",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: 15,
-            padding: "13px 24px",
-            borderRadius: 999,
-            background: "#fff",
-            color: registrationLocked ? "var(--rose-deep)" : "var(--ink-soft)",
-            border: `1px solid ${
-              registrationLocked
-                ? "color-mix(in srgb, var(--rose) 40%, var(--hairline))"
-                : "var(--hairline)"
-            }`,
-            boxShadow: "var(--shadow-soft)",
-          }}
         >
           {registrationLocked ? "受付を再開" : "応募を締め切る"}
-        </Button>
+        </PuniButton>
       ) : null}
       {inGame ? (
-        <Button
+        <PuniButton
           type="button"
+          variant="soft"
+          size="md"
           disabled={pending || !ready}
           onClick={() => setShowResetConfirm(true)}
-          style={{
-            height: "auto",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: 15,
-            padding: "13px 24px",
-            borderRadius: 999,
-            background: "#fff",
-            color: "var(--ink-soft)",
-            border: "1px solid var(--hairline)",
-            boxShadow: "var(--shadow-soft)",
-          }}
         >
           中断してロビーへ
-        </Button>
+        </PuniButton>
       ) : null}
       {secondary ? (
-        <Button
+        <PuniButton
           type="button"
+          variant="soft"
+          size="md"
+          tone="plum"
           disabled={pending || !ready}
           onClick={secondary.onClick}
-          style={{
-            height: "auto",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: 15,
-            padding: "13px 24px",
-            borderRadius: 999,
-            background: "#fff",
-            color: "var(--plum-deep)",
-            border: "1px solid var(--hairline)",
-            boxShadow: "var(--shadow-soft)",
-          }}
         >
           {secondary.label}
-        </Button>
+        </PuniButton>
       ) : null}
       {primary ? (
-        <Button
+        <PuniButton
           type="button"
+          variant="plum"
+          size="lg"
+          icon={state === "lobby" && !pending ? Play : undefined}
+          iconFilled={state === "lobby"}
           disabled={pending || !ready}
           onClick={primary.confirm ? () => setShowStartConfirm(true) : primary.onClick}
-          style={{
-            height: "auto",
-            color: "#fff",
-            border: "none",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: 16,
-            padding: "14px 32px",
-            borderRadius: 999,
-            background:
-              "radial-gradient(120% 80% at 30% 18%, rgba(255,255,255,0.45), rgba(255,255,255,0) 55%), linear-gradient(158deg, var(--plum), var(--plum-deep))",
-            boxShadow: "0 6px 0 var(--plum-deep), 0 12px 20px -8px var(--plum)",
-            opacity: pending ? 0.6 : 1,
-          }}
+          style={{ opacity: pending ? 0.6 : 1 }}
         >
           {pending ? "…" : primary.label}
-        </Button>
+        </PuniButton>
       ) : null}
     </div>
 
@@ -641,7 +576,7 @@ function HostControls({
       {showStartConfirm ? (
         <ConfirmDialog
           title="締め切って開始しますか？"
-          description="ゲームを開始すると最初の問題に進みます。"
+          description="ゲームを開始すると最初の問題に進みます。初めての参加者には、まずデモで操作に慣れてもらえます。"
           confirmLabel="開始する"
           cancelLabel="キャンセル"
           pending={pending}
@@ -649,6 +584,13 @@ function HostControls({
           onConfirm={() => {
             setShowStartConfirm(false);
             onStart();
+          }}
+          extra={{
+            label: "▷ デモから始める",
+            onClick: () => {
+              setShowStartConfirm(false);
+              onStartDemo();
+            },
           }}
         />
       ) : null}
@@ -662,6 +604,7 @@ function HostControls({
           confirmLabel="ロビーに戻す"
           cancelLabel="やめる"
           pending={pending}
+          confirmTone="rose"
           onCancel={() => setShowResetConfirm(false)}
           onConfirm={() => {
             setShowResetConfirm(false);
@@ -671,23 +614,5 @@ function HostControls({
       ) : null}
     </AnimatePresence>
     </>
-  );
-}
-
-// Shown when this browser opened /host/{id} without the host secret cookie:
-// they can watch the live game but cannot drive it.
-function SpectatorNote() {
-  return (
-    <p
-      style={{
-        marginTop: 28,
-        textAlign: "center",
-        color: "var(--ink-soft)",
-        fontWeight: 600,
-        fontSize: 14,
-      }}
-    >
-      観戦モード — このゲームのホスト権限がありません
-    </p>
   );
 }

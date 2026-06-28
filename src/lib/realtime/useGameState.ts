@@ -36,6 +36,7 @@ import {
   type GameSnapshot,
   type GameState,
   type LeaderboardEntry,
+  type LockEvent,
   type PhaseEvent,
   type PublicChoice,
   type QuestionEvent,
@@ -62,6 +63,7 @@ export type GameQuestion = {
   text: string;
   choices: PublicChoice[];
   time_limit_seconds: number;
+  media_url?: string | null;
 };
 
 export type UseGameState = {
@@ -72,6 +74,14 @@ export type UseGameState = {
   deadline: string | null;
   /** Whole seconds remaining, computed from deadline + clock offset. 0 when none. */
   secondsLeft: number;
+  /** ISO time answers unlock (after the countdown+reading lead), or null. */
+  answersOpenAt: string | null;
+  /** Whole seconds until answers open (0 once open). */
+  secondsUntilAnswers: number;
+  /** Sub-phase of a live question: countdown → reading → answering (null otherwise). */
+  roundPhase: RoundPhase;
+  /** 3-2-1 number during the countdown sub-phase (0 otherwise). */
+  countdownNumber: number;
   /** Live aggregate tally: choice_key -> count. */
   counts: VoteCounts;
   total: number;
@@ -90,6 +100,8 @@ export type UseGameState = {
   hydrated: boolean;
   /** Registration lock — true when the host has stopped new players joining. */
   registrationLocked: boolean;
+  /** A next quiz is queued — once ended, the host can continue the same game. */
+  hasNext: boolean;
   /** Underlying channel (for usePresence track / host broadcasts). */
   channel: RealtimeChannel | null;
   /** Coarse channel connection status. */
@@ -112,6 +124,7 @@ function toQuestion(
     text: q.text,
     choices: q.choices,
     time_limit_seconds: q.time_limit_seconds,
+    media_url: q.media_url ?? null,
   };
 }
 
@@ -122,6 +135,12 @@ function computeOffset(serverNowIso: string): number {
   if (Number.isNaN(server)) return 0;
   return server - Date.now();
 }
+
+// Lead before answering — a 3s countdown + 5s question-reading window (must
+// match host_advance's 8s lead in 0007). secondsUntil counts down to answers_open_at.
+export const COUNTDOWN_S = 3;
+export const READING_S = 5;
+export type RoundPhase = "countdown" | "reading" | "answering" | null;
 
 function secondsUntil(deadlineIso: string | null, offsetMs: number): number {
   if (!deadlineIso) return 0;
@@ -139,6 +158,7 @@ function applySnapshot(
     setPosition: (n: number) => void;
     setQuestion: (q: GameQuestion | null) => void;
     setDeadline: (d: string | null) => void;
+    setAnswersOpenAt: (d: string | null) => void;
     setCounts: (c: VoteCounts) => void;
     setTotal: (n: number) => void;
     setCorrectKey: (k: string | undefined) => void;
@@ -146,6 +166,7 @@ function applySnapshot(
     setRoster: (r: RosterEntry[]) => void;
     setHydrated: (h: boolean) => void;
     setRegistrationLocked: (b: boolean) => void;
+    setHasNext: (b: boolean) => void;
   },
 ) {
   setters.setOffset(computeOffset(snap.server_now));
@@ -153,12 +174,14 @@ function applySnapshot(
   setters.setPosition(snap.current_position);
   setters.setQuestion(toQuestion(snap.current_question));
   setters.setDeadline(snap.phase_deadline);
+  setters.setAnswersOpenAt(snap.answers_open_at ?? null);
   setters.setCounts(snap.vote?.counts ?? {});
   setters.setTotal(snap.vote?.total ?? 0);
   setters.setCorrectKey(snap.correct_key ?? undefined);
   setters.setLeaderboard(snap.leaderboard ?? []);
   setters.setRoster(snap.roster ?? []);
   setters.setRegistrationLocked(snap.registration_locked ?? false);
+  setters.setHasNext(snap.has_next ?? false);
   setters.setHydrated(true);
 }
 
@@ -167,6 +190,7 @@ export function useGameState(gameId: string): UseGameState {
   const [position, setPosition] = useState(0);
   const [question, setQuestion] = useState<GameQuestion | null>(null);
   const [deadline, setDeadline] = useState<string | null>(null);
+  const [answersOpenAt, setAnswersOpenAt] = useState<string | null>(null);
   const [counts, setCounts] = useState<VoteCounts>({});
   const [total, setTotal] = useState(0);
   const [correctKey, setCorrectKey] = useState<string | undefined>(undefined);
@@ -176,6 +200,7 @@ export function useGameState(gameId: string): UseGameState {
   const [pin, setPin] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [registrationLocked, setRegistrationLocked] = useState(false);
+  const [hasNext, setHasNext] = useState(false);
   const [presence, setPresence] = useState<RawPresenceState>({});
   const [snapshotNonce, setSnapshotNonce] = useState(0);
 
@@ -201,8 +226,16 @@ export function useGameState(gameId: string): UseGameState {
       markHydrated();
       if (p.server_now) setOffset(computeOffset(p.server_now));
       setState(p.state);
+      // Re-pull the snapshot when the game's quiz may have changed underneath us
+      // so has_next / roster are fresh: returning to the lobby (chain advance or
+      // reset), and opening the FIRST question (a demo prepend swaps the quiz on
+      // lobby → Q1, so has_next flips to true here, before the demo's ended screen).
+      if (p.state === "lobby" || (p.state === "question_open" && p.position === 0)) {
+        setSnapshotNonce((n) => n + 1);
+      }
       if (typeof p.position === "number") setPosition(p.position);
       setDeadline(p.deadline ?? null);
+      setAnswersOpenAt(p.answers_open_at ?? null);
       if (p.state === "question_open") {
         setCorrectKey(undefined);
         setCorrectCount(0);
@@ -221,6 +254,7 @@ export function useGameState(gameId: string): UseGameState {
         text: q.text,
         choices: q.choices,
         time_limit_seconds: q.time_limit_seconds,
+        media_url: q.media_url ?? null,
       });
       setPosition(q.position);
       setCorrectKey(undefined);
@@ -249,11 +283,19 @@ export function useGameState(gameId: string): UseGameState {
       setLeaderboard(payload.payload.leaderboard ?? []);
     };
 
+    // `lock` — host toggled registration; reflect it live (no reload needed).
+    const onLock = (payload: { payload: LockEvent }) => {
+      const l = payload.payload;
+      if (l.server_now) setOffset(computeOffset(l.server_now));
+      setRegistrationLocked(Boolean(l.registration_locked));
+    };
+
     ch.on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.phase }, onPhase)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.question }, onQuestion)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.vote }, onVote)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.reveal }, onReveal)
-      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.scoreboard }, onScoreboard);
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.scoreboard }, onScoreboard)
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.lock }, onLock);
 
     // Presence (lobby roster) — MUST be bound before subscribe().
     const syncPresence = () =>
@@ -291,6 +333,7 @@ export function useGameState(gameId: string): UseGameState {
           setPosition,
           setQuestion,
           setDeadline,
+          setAnswersOpenAt,
           setCounts,
           setTotal,
           setCorrectKey,
@@ -298,6 +341,7 @@ export function useGameState(gameId: string): UseGameState {
           setRoster,
           setHydrated,
           setRegistrationLocked,
+          setHasNext,
         });
       } catch (e) {
         if (cancelled) return;
@@ -341,6 +385,21 @@ export function useGameState(gameId: string): UseGameState {
   // new value as wall-clock time advances.
   void tick;
   const secondsLeft = secondsUntil(deadline, offset);
+  const secondsUntilAnswers = secondsUntil(answersOpenAt, offset);
+  let roundPhase: RoundPhase = null;
+  let countdownNumber = 0;
+  if (state === "question_open") {
+    if (answersOpenAt && secondsUntilAnswers > 0) {
+      if (secondsUntilAnswers > READING_S) {
+        roundPhase = "countdown";
+        countdownNumber = Math.max(1, Math.min(COUNTDOWN_S, secondsUntilAnswers - READING_S));
+      } else {
+        roundPhase = "reading";
+      }
+    } else {
+      roundPhase = "answering";
+    }
+  }
 
   return {
     state,
@@ -348,6 +407,10 @@ export function useGameState(gameId: string): UseGameState {
     question,
     deadline,
     secondsLeft,
+    answersOpenAt,
+    secondsUntilAnswers,
+    roundPhase,
+    countdownNumber,
     counts,
     total,
     correctKey,
@@ -358,6 +421,7 @@ export function useGameState(gameId: string): UseGameState {
     pin,
     hydrated,
     registrationLocked,
+    hasNext,
     channel,
     channelStatus: status,
     subscribed: status === "subscribed",
