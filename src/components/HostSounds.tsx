@@ -43,7 +43,7 @@ function seekableSeconds(audio: HTMLAudioElement, elapsedMs: number): number {
 // HostSounds — big-screen audio for the host (shared speakers, Kahoot-style):
 //   • plays the "3, 2, 1, go" cue when answers are about to open
 //   • loops the "thinking" track while answers are open
-//   • plays the drumroll the instant the answer is revealed (the 溜め)
+//   • plays the drumroll as soon as the "正解は…？" hold starts
 //   • keeps the audio's "じゃん!" hit aligned with the server-gated answer reveal.
 // Renders nothing.
 export function HostSounds({
@@ -60,9 +60,8 @@ export function HostSounds({
   revealed: boolean;
   /** Called once when the drumroll finishes (legacy; reveal is now server-timed). */
   onDrumrollEnd?: () => void;
-  /** Drumroll 溜め window (ms). The drumroll is rate-synced to end exactly then,
-   *  so the sound lands on the (server-timed) answer reveal regardless of the
-   *  audio file's true length. */
+  /** Drumroll 溜め window (ms). This should normally equal the source's "じゃん!"
+   *  hit position so the prompt and BGM start together at normal speed. */
   revealMs?: number;
 }) {
   const countdownRef = useRef<HTMLAudioElement | null>(null);
@@ -125,8 +124,8 @@ export function HostSounds({
     }
   }, [answering]);
 
-  // Drumroll on reveal. The answer appears at the server's answer_reveal_at; the
-  // audio starts late enough that the source's "じゃん!" hit lands exactly there.
+  // Drumroll on reveal. The prompt and BGM start together; answer_reveal_at is
+  // set to the source's "じゃん!" hit so the answer lands there.
   useEffect(() => {
     if (!revealed) return;
     thinkingRef.current?.pause();
