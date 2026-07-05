@@ -8,7 +8,7 @@
 //                           reveal, secondsLeft from the absolute deadline, the
 //                           game PIN, and correctKey (undefined until reveal).
 //   - usePlayerSession(gameId): anonymous session + this game's player row, plus
-//                           pick(choiceKey)=submit_answer with optimistic UI.
+//                           pick(choiceKey) with optimistic UI.
 //
 // It maps that state onto the existing <PhoneScreen/> via the plan's adapter:
 //   choices    = hydrateChoices(question.choices)          (theme re-hydrated)
@@ -21,21 +21,52 @@
 // If the visitor has no membership for this game (status "no_player"), it shows
 // a small join prompt linking to "/?join={pin}" instead of the board.
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { AnimatePresence } from "motion/react";
 import { hydrateChoices } from "@/lib/quiz";
-import Link from "next/link";
 import { useGameState } from "@/lib/realtime/useGameState";
 import { usePlayerSession } from "@/lib/realtime/usePlayerSession";
-import { refreshPlayerBoot, usePlayerBootRefresh } from "@/lib/realtime/playerBoot";
 import { usePresence, type PresenceMeta } from "@/lib/realtime/usePresence";
 import { PhoneScreen } from "@/components/PhoneScreen";
-import { BrandMark } from "@/components/Brand";
+import { PuniButton } from "@/components/PuniButton";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+
+const messageCardStyle = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 16,
+  textAlign: "center",
+  padding: "48px 24px",
+  maxWidth: 340,
+  margin: "0 auto",
+} as const;
+
+const messageCardIconStyle = {
+  width: 64,
+  height: 64,
+  borderRadius: 22,
+  display: "grid",
+  placeItems: "center",
+  fontSize: 30,
+  transform: "rotate(-6deg)",
+  background: "color-mix(in srgb, var(--plum) 10%, white)",
+  boxShadow: "var(--shadow-soft)",
+} as const;
 
 export function PlayerSession({ gameId }: { gameId: string }) {
   const game = useGameState(gameId);
-  const session = usePlayerSession(gameId);
+  const answerScope = game.question ? `${game.position}:${game.question.text}` : null;
+  const session = usePlayerSession(gameId, answerScope);
+  const router = useRouter();
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
-  // Soft reload loop until player row + snapshot land (same as browser refresh).
-  usePlayerBootRefresh(gameId, session, game);
+  // No boot/poll loop: the realtime channel auto-(re)subscribes with backoff and
+  // re-auths on token changes, and useGameState re-pulls the snapshot on every
+  // (re)subscribe (reconnectNonce) + auth change. So session + snapshot converge
+  // on their own — we just render the resolved state, no soft-reload churn.
 
   // Track this player into presence so the host's lobby roster/count updates
   // live. Built from the resolved player row (null until then → no track yet).
@@ -45,11 +76,19 @@ export function PlayerSession({ gameId }: { gameId: string }) {
         nickname: session.player.nickname,
         avatar_color: session.player.avatar_color,
         avatar_initial: session.player.avatar_initial,
-        role: "player",
+        kind: "player",
       }
     : null;
   usePresence(game.channel, me, game.presence, game.subscribed);
 
+  // Not a member here (deep link / lost session): there's nothing to play without
+  // joining by code, so send them to the landing to enter one. The PIN is hidden
+  // from non-members by RLS, so prefilling it was always dead code — just go home.
+  const notMember =
+    !session.loading &&
+    !session.isMember &&
+    session.status !== "anonymous_disabled" &&
+    session.status !== "error";
   // True while the channel is connecting or has errored (reconnecting). Used to
   // surface a small, non-alarming "再接続中…" pill rather than blocking the UI.
   const connecting =
@@ -80,20 +119,23 @@ export function PlayerSession({ gameId }: { gameId: string }) {
         body="ゲーム情報の読み込みに失敗しました。もう一度お試しください。"
         action={{
           label: "再読み込み",
-          onClick: () => refreshPlayerBoot(session, game),
+          onClick: () => {
+            session.refresh();
+            game.refresh();
+          },
         }}
       />
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Not a member of this game → invite them to join via the landing page.
-  // Only after the session has resolved (loading === false), so we don't flash
-  // the prompt during the initial anonymous-session + player-row lookup.
-  // (PIN is null for non-members per RLS, so the link falls back to "/".)
-  // ---------------------------------------------------------------------------
-  if (!session.loading && !session.isMember) {
-    return <JoinPrompt pin={game.pin} />;
+  if (notMember) {
+    return (
+      <MessageCard
+        title="参加が必要です"
+        body="このゲームで遊ぶには、参加コードから入り直してください。"
+        action={{ label: "参加ページへ", onClick: () => router.push("/") }}
+      />
+    );
   }
 
   // Hydrate the public {key,label} choices into render-ready Choice[] (color/
@@ -153,13 +195,25 @@ export function PlayerSession({ gameId }: { gameId: string }) {
   const points = myIndex >= 0 ? game.leaderboard[myIndex].total_points : 0;
   const totalPlayers = game.leaderboard.length;
 
+  // Cancel participation: confirm, delete the player row, then go home.
+  const handleLeaveConfirm = async () => {
+    setLeaving(true);
+    await session.leave();
+    router.push("/");
+  };
+
   return (
+    <>
     <PhoneScreen
+      onLeave={() => setShowLeaveConfirm(true)}
       choices={choices}
       picked={picked}
       correctId={correctId}
       revealed={revealed}
       onPick={session.pick}
+      roundPhase={game.roundPhase}
+      countdownNumber={game.countdownNumber}
+      awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
       initial={initial}
       avatarColor={avatarColor}
@@ -172,77 +226,22 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       points={points}
       totalPlayers={totalPlayers}
     />
-  );
-}
 
-// Small standalone join card shown when the visitor isn't a member of this game
-// (deep-linked / lost session). Links back to the landing page with the PIN
-// prefilled when we know it, so they can re-enter a nickname and join.
-function JoinPrompt({ pin }: { pin: string | null }) {
-  const href = pin ? `/?join=${encodeURIComponent(pin)}` : "/";
-  return (
-    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "12px 16px 0" }}>
-        <Link href="/" aria-label="puni — ホームへ" style={{ display: "inline-flex", textDecoration: "none" }}>
-          <BrandMark />
-        </Link>
-      </div>
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 16,
-          textAlign: "center",
-          padding: "24px 24px 48px",
-          maxWidth: 340,
-          margin: "0 auto",
-        }}
-      >
-      <h2
-        style={{
-          fontFamily: "var(--font-display)",
-          fontWeight: 700,
-          fontSize: 22,
-          margin: 0,
-          color: "var(--ink)",
-        }}
-      >
-        このゲームにまだ参加していません
-      </h2>
-      <p
-        style={{
-          margin: 0,
-          color: "var(--ink-soft)",
-          fontWeight: 500,
-          fontSize: 14,
-          lineHeight: 1.6,
-        }}
-      >
-        ニックネームを入れて参加すると、ここでクイズに答えられます。
-      </p>
-      <a
-        href={href}
-        style={{
-          display: "inline-block",
-          textDecoration: "none",
-          color: "#fff",
-          fontFamily: "var(--font-display)",
-          fontWeight: 700,
-          fontSize: 15,
-          padding: "12px 26px",
-          borderRadius: 999,
-          background:
-            "radial-gradient(120% 80% at 30% 18%, rgba(255,255,255,0.45), rgba(255,255,255,0) 55%), linear-gradient(158deg, var(--plum), var(--plum-deep))",
-          boxShadow: "0 6px 0 var(--plum-deep), 0 12px 20px -8px var(--plum)",
-        }}
-      >
-        参加する
-      </a>
-      </div>
-    </div>
+    <AnimatePresence>
+      {showLeaveConfirm ? (
+        <ConfirmDialog
+          title="ゲームから退出しますか？"
+          description="スコアは消えます。"
+          confirmLabel="退出する"
+          cancelLabel="キャンセル"
+          pending={leaving}
+          confirmTone="rose"
+          onCancel={() => setShowLeaveConfirm(false)}
+          onConfirm={handleLeaveConfirm}
+        />
+      ) : null}
+    </AnimatePresence>
+    </>
   );
 }
 
@@ -261,30 +260,11 @@ function MessageCard({
     <div
       role="status"
       aria-live="polite"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 16,
-        textAlign: "center",
-        padding: "48px 24px",
-        maxWidth: 340,
-        margin: "0 auto",
-      }}
+      style={messageCardStyle}
     >
       <span
         aria-hidden
-        style={{
-          width: 64,
-          height: 64,
-          borderRadius: 22,
-          display: "grid",
-          placeItems: "center",
-          fontSize: 30,
-          transform: "rotate(-6deg)",
-          background: "color-mix(in srgb, var(--plum) 10%, white)",
-          boxShadow: "var(--shadow-soft)",
-        }}
+        style={messageCardIconStyle}
       >
         🍵
       </span>
@@ -301,25 +281,9 @@ function MessageCard({
       </h2>
       <p style={{ margin: 0, color: "var(--ink-soft)", fontWeight: 500, fontSize: 14, lineHeight: 1.6 }}>{body}</p>
       {action ? (
-        <button
-          type="button"
-          onClick={action.onClick}
-          style={{
-            cursor: "pointer",
-            color: "#fff",
-            border: "none",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: 15,
-            padding: "12px 26px",
-            borderRadius: 999,
-            background:
-              "radial-gradient(120% 80% at 30% 18%, rgba(255,255,255,0.45), rgba(255,255,255,0) 55%), linear-gradient(158deg, var(--plum), var(--plum-deep))",
-            boxShadow: "0 6px 0 var(--plum-deep), 0 12px 20px -8px var(--plum)",
-          }}
-        >
+        <PuniButton variant="plum" size="sm" wide onClick={action.onClick}>
           {action.label}
-        </button>
+        </PuniButton>
       ) : null}
     </div>
   );

@@ -7,7 +7,7 @@ import type { CSSProperties } from "react";
 // centered. Change it here, it changes everywhere — no page hardcodes its own
 // width anymore (that's what was "割れていた" before).
 
-export const PAGE_MAX_WIDTH = 1160;
+const PAGE_MAX_WIDTH = 1160;
 
 export const pageShell: CSSProperties = {
   width: "100%",
@@ -16,6 +16,7 @@ export const pageShell: CSSProperties = {
   padding: "30px clamp(14px, 4vw, 40px) 64px",
 };
 
-// Phone-first reading column — the player viewport and centered join/prompt
-// content. One value so "phone width" is defined exactly once (was 460 vs 480).
-export const CONTENT_NARROW = 460;
+// Readable single-column width for text/forms inside the wide page shell
+// (legal docs, the authoring hub) — keeps cards from stretching to 1160 and
+// going empty on the right.
+export const CONTENT_READABLE = 720;

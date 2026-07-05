@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 // Brand — the SINGLE source of truth for the puni logo lockup.
 //
@@ -9,13 +10,13 @@ import Image from "next/image";
 
 // The one canonical on-screen size for the puni mark. Change it here, it changes
 // app-wide — no call site may override it (that's what kept SSOT broken before).
-export const BRAND_SIZE = 72;
+const BRAND_SIZE = 72;
 
-export function BrandMark() {
+function BrandMark() {
   return (
     <Image
       src="/icon-192.png"
-      alt="puni"
+      alt={PRODUCT_NAME}
       width={BRAND_SIZE}
       height={BRAND_SIZE}
       priority
@@ -30,21 +31,18 @@ export function BrandMark() {
   );
 }
 
+const BRAND_MARK = <BrandMark />;
+
 export function Brand({
   href = "/" as string | null,
 }: {
-  /** Accepted for call-site compatibility; the lockup is now icon-only. */
-  subtitle?: string | null;
-  wordmark?: string;
   /** Wrap in a link to this href (null = plain, non-clickable). */
   href?: string | null;
 }) {
-  const mark = <BrandMark />;
-
-  if (!href) return mark;
+  if (!href) return BRAND_MARK;
   return (
-    <a href={href} aria-label="puni — ホームへ" style={{ display: "inline-flex", textDecoration: "none" }}>
-      {mark}
+    <a href={href} aria-label={`${PRODUCT_NAME} — ホームへ`} style={{ display: "inline-flex", textDecoration: "none" }}>
+      {BRAND_MARK}
     </a>
   );
 }

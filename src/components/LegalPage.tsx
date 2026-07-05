@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Brand } from "@/components/Brand";
-import { pageShell } from "@/lib/layout";
+import { pageShell, CONTENT_READABLE } from "@/lib/layout";
 
 // LegalPage — shared shell for the legal/policy pages (利用規約・プライバシー
 // ポリシー). Same page frame + top-left mark as everywhere else; the readable
@@ -27,7 +27,7 @@ export function LegalPage({
       </article>
 
       <style>{`
-        .legal { max-width: 720px; margin: 0 auto; color: var(--ink); font-size: 15px; line-height: 1.9; }
+        .legal { max-width: ${CONTENT_READABLE}px; margin: 0 auto; color: var(--ink); font-size: 15px; line-height: 1.9; }
         .legal h1 { font-family: var(--font-display); font-size: clamp(26px, 5vw, 32px); font-weight: 700; margin: 0 0 6px; }
         .legal .legal-updated { color: var(--ink-soft); font-size: 13px; margin: 0 0 30px; }
         .legal h2 { font-family: var(--font-display); font-size: 18px; font-weight: 700; margin: 34px 0 10px; color: var(--ink); }

@@ -1,10 +1,8 @@
 "use client";
 
 // recent-quizzes — the single source of truth for "quizzes I've made/edited on
-// this device". Since authoring is login-free (a quiz is owned by whoever holds
-// its secret edit-link), we remember the {quizId, token, title} locally so the
-// user can come back to them: the /admin "編集を続ける" list and the landing
-// "ゲームを始める" launcher both read from here.
+// this device". Authoring authority is the invite cookie; this only remembers
+// {quizId, title} locally so the /admin list and host launcher can reopen them.
 //
 // Implemented as a tiny external store (subscribe + cached snapshot) so React can
 // consume it via useSyncExternalStore with NO setState-in-effect and NO hydration
@@ -15,12 +13,11 @@ import { useSyncExternalStore } from "react";
 
 export type RecentQuiz = {
   quizId: string;
-  token: string;
   title: string;
   savedAt: number; // epoch ms — most-recent first
 };
 
-const KEY = "puni:recent-quizzes:v1";
+const KEY = "puni:recent-quizzes:v2";
 const MAX = 12;
 
 // Stable empty reference — required so getServerSnapshot()/empty reads don't
@@ -42,12 +39,10 @@ function readFromStorage(): readonly RecentQuiz[] {
         (v): v is RecentQuiz =>
           !!v &&
           typeof v === "object" &&
-          typeof (v as RecentQuiz).quizId === "string" &&
-          typeof (v as RecentQuiz).token === "string",
+          typeof (v as RecentQuiz).quizId === "string",
       )
       .map((v) => ({
         quizId: v.quizId,
-        token: v.token,
         title: typeof v.title === "string" && v.title.trim() ? v.title : "無題のクイズ",
         savedAt: typeof v.savedAt === "number" ? v.savedAt : 0,
       }))
@@ -112,23 +107,16 @@ export function useRecentQuizzes(): readonly RecentQuiz[] {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
-// Imperative read (e.g. one-off, outside render).
-export function getRecentQuizzes(): readonly RecentQuiz[] {
-  return ensure();
-}
-
 // Upsert a quiz to the top of the list. Call after create / open / save so the
 // title stays fresh. No-op-safe on the server (window-guarded).
 export function rememberQuiz(input: {
   quizId: string;
-  token: string;
   title: string;
 }): void {
-  if (!input.quizId || !input.token) return;
+  if (!input.quizId) return;
   const rest = ensure().filter((q) => q.quizId !== input.quizId);
   const entry: RecentQuiz = {
     quizId: input.quizId,
-    token: input.token,
     title: input.title?.trim() || "無題のクイズ",
     savedAt: Date.now(),
   };

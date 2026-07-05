@@ -24,7 +24,8 @@
 // correctKey is undefined until a `reveal` (or a snapshot taken post-reveal), so
 // consumers can never show the answer early.
 
-import { use, useCallback, useEffect, useState } from "react";
+import { useEffect, useReducer, useRef, useState, type Dispatch } from "react";
+import { getGamePinAction, getGameSnapshotAction } from "@/app/actions";
 import { createClient } from "@/lib/supabase/client";
 import {
   REALTIME_LISTEN_TYPES,
@@ -36,6 +37,7 @@ import {
   type GameSnapshot,
   type GameState,
   type LeaderboardEntry,
+  type LockEvent,
   type PhaseEvent,
   type PublicChoice,
   type QuestionEvent,
@@ -49,6 +51,7 @@ import {
   useRealtimeChannel,
   type ChannelStatus,
 } from "@/lib/realtime/useRealtimeChannel";
+import { DRUMROLL_MS, DRUMROLL_STUCK_RECOVERY_GRACE_MS } from "@/lib/reveal-timing";
 
 // Raw presence state as Supabase reports it (channel.presenceState()). usePresence
 // flattens this; we keep it opaque here to avoid coupling.
@@ -62,6 +65,9 @@ export type GameQuestion = {
   text: string;
   choices: PublicChoice[];
   time_limit_seconds: number;
+  /** This question's worth — full points for an instant correct answer. */
+  points_base: number;
+  media_url?: string | null;
 };
 
 export type UseGameState = {
@@ -72,6 +78,14 @@ export type UseGameState = {
   deadline: string | null;
   /** Whole seconds remaining, computed from deadline + clock offset. 0 when none. */
   secondsLeft: number;
+  /** ISO time answers unlock (after the countdown+reading lead), or null. */
+  answersOpenAt: string | null;
+  /** Whole seconds until answers open (0 once open). */
+  secondsUntilAnswers: number;
+  /** Sub-phase of a live question: countdown → reading → answering (null otherwise). */
+  roundPhase: RoundPhase;
+  /** 3-2-1 number during the countdown sub-phase (0 otherwise). */
+  countdownNumber: number;
   /** Live aggregate tally: choice_key -> count. */
   counts: VoteCounts;
   total: number;
@@ -88,8 +102,14 @@ export type UseGameState = {
   pin: string | null;
   /** True once the first snapshot has been applied. */
   hydrated: boolean;
+  /** The game no longer exists (deleted / bad id / retention) — caller should leave. */
+  notFound: boolean;
   /** Registration lock — true when the host has stopped new players joining. */
   registrationLocked: boolean;
+  /** A next quiz is queued — once ended, the host can continue the same game. */
+  hasNext: boolean;
+  /** The current quiz is the curated demo (server truth — survives reload/share). */
+  isDemo: boolean;
   /** Underlying channel (for usePresence track / host broadcasts). */
   channel: RealtimeChannel | null;
   /** Coarse channel connection status. */
@@ -112,6 +132,8 @@ function toQuestion(
     text: q.text,
     choices: q.choices,
     time_limit_seconds: q.time_limit_seconds,
+    points_base: q.points_base ?? 1000,
+    media_url: q.media_url ?? null,
   };
 }
 
@@ -123,6 +145,49 @@ function computeOffset(serverNowIso: string): number {
   return server - Date.now();
 }
 
+// How long to hold the answer after a reveal, as a pure SERVER-clock duration
+// (answer_reveal_at − server_now). Both are server times, so this needs no client
+// offset; the answer then appears at the same instant on every device.
+function revealDelayMs(atIso: string | null | undefined, nowIso: string | null | undefined): number {
+  if (!atIso || !nowIso) return 0;
+  const at = new Date(atIso).getTime();
+  const now = new Date(nowIso).getTime();
+  if (Number.isNaN(at) || Number.isNaN(now)) return 0;
+  return Math.max(0, at - now);
+}
+
+function scheduleCorrectReveal(
+  timerRef: { current: ReturnType<typeof setTimeout> | null },
+  dispatch: Dispatch<GameViewAction>,
+  key: string | undefined,
+  atIso: string | null | undefined,
+  nowIso: string | null | undefined,
+): void {
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+  if (!key) {
+    dispatch({ type: "correctKey", key: undefined });
+    return;
+  }
+  const delay = revealDelayMs(atIso, nowIso);
+  if (delay <= 0) {
+    dispatch({ type: "correctKey", key });
+    return;
+  }
+  timerRef.current = setTimeout(() => dispatch({ type: "correctKey", key }), delay);
+}
+
+// Sub-phases of an open question (host-driven, see 0015):
+//   await     — the question is parked on screen; the host reads it aloud and
+//               players wait. No timer. (answers_open_at is NULL.)
+//   countdown — the host pressed 回答開始: a 3-2-1 "ready" before answers open.
+//   answering — answers_open_at has passed; the answer timer is running.
+// secondsUntil counts down to answers_open_at.
+export const COUNTDOWN_S = 3;
+export type RoundPhase = "await" | "countdown" | "answering" | null;
+
 function secondsUntil(deadlineIso: string | null, offsetMs: number): number {
   if (!deadlineIso) return 0;
   const deadline = new Date(deadlineIso).getTime();
@@ -131,129 +196,246 @@ function secondsUntil(deadlineIso: string | null, offsetMs: number): number {
   return Math.max(0, Math.ceil((deadline - serverNow) / 1000));
 }
 
-function applySnapshot(
-  snap: GameSnapshot,
-  setters: {
-    setOffset: (n: number) => void;
-    setState: (s: GameState) => void;
-    setPosition: (n: number) => void;
-    setQuestion: (q: GameQuestion | null) => void;
-    setDeadline: (d: string | null) => void;
-    setCounts: (c: VoteCounts) => void;
-    setTotal: (n: number) => void;
-    setCorrectKey: (k: string | undefined) => void;
-    setLeaderboard: (l: LeaderboardEntry[]) => void;
-    setRoster: (r: RosterEntry[]) => void;
-    setHydrated: (h: boolean) => void;
-    setRegistrationLocked: (b: boolean) => void;
-  },
-) {
-  setters.setOffset(computeOffset(snap.server_now));
-  setters.setState(snap.state);
-  setters.setPosition(snap.current_position);
-  setters.setQuestion(toQuestion(snap.current_question));
-  setters.setDeadline(snap.phase_deadline);
-  setters.setCounts(snap.vote?.counts ?? {});
-  setters.setTotal(snap.vote?.total ?? 0);
-  setters.setCorrectKey(snap.correct_key ?? undefined);
-  setters.setLeaderboard(snap.leaderboard ?? []);
-  setters.setRoster(snap.roster ?? []);
-  setters.setRegistrationLocked(snap.registration_locked ?? false);
-  setters.setHydrated(true);
+type GameViewState = {
+  state: GameState;
+  position: number;
+  question: GameQuestion | null;
+  deadline: string | null;
+  answersOpenAt: string | null;
+  counts: VoteCounts;
+  total: number;
+  correctKey: string | undefined;
+  correctCount: number;
+  leaderboard: LeaderboardEntry[];
+  roster: RosterEntry[];
+  pin: string | null;
+  hydrated: boolean;
+  notFound: boolean;
+  registrationLocked: boolean;
+  hasNext: boolean;
+  isDemo: boolean;
+  offset: number;
+};
+
+type GameViewAction =
+  | { type: "snapshot"; snap: GameSnapshot }
+  | { type: "phase"; event: PhaseEvent }
+  | { type: "question"; event: QuestionEvent }
+  | { type: "vote"; event: VoteEvent }
+  | { type: "reveal"; event: RevealEvent }
+  | { type: "scoreboard"; event: ScoreboardEvent }
+  | { type: "lock"; event: LockEvent }
+  | { type: "pin"; pin: string | null }
+  | { type: "notFound"; notFound: boolean }
+  | { type: "correctKey"; key: string | undefined };
+
+const initialGameView: GameViewState = {
+  state: "lobby",
+  position: 0,
+  question: null,
+  deadline: null,
+  answersOpenAt: null,
+  counts: {},
+  total: 0,
+  correctKey: undefined,
+  correctCount: 0,
+  leaderboard: [],
+  roster: [],
+  pin: null,
+  hydrated: false,
+  notFound: false,
+  registrationLocked: false,
+  hasNext: false,
+  isDemo: false,
+  offset: 0,
+};
+
+function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewState {
+  switch (action.type) {
+    case "snapshot": {
+      const { snap } = action;
+      return {
+        ...view,
+        state: snap.state,
+        position: snap.current_position,
+        question: toQuestion(snap.current_question),
+        deadline: snap.phase_deadline,
+        answersOpenAt: snap.answers_open_at ?? null,
+        counts: snap.vote?.counts ?? {},
+        total: snap.vote?.total ?? 0,
+        correctKey: undefined,
+        correctCount: snap.correct_count ?? 0,
+        leaderboard: snap.leaderboard ?? [],
+        roster: snap.roster ?? [],
+        registrationLocked: snap.registration_locked ?? false,
+        hasNext: snap.has_next ?? false,
+        isDemo: snap.is_demo ?? false,
+        offset: computeOffset(snap.server_now),
+        hydrated: true,
+        notFound: false,
+      };
+    }
+    case "phase": {
+      const p = action.event;
+      const next: GameViewState = {
+        ...view,
+        hydrated: true,
+        state: p.state,
+        position: typeof p.position === "number" ? p.position : view.position,
+        deadline: p.deadline ?? null,
+        answersOpenAt: p.answers_open_at ?? null,
+        offset: p.server_now ? computeOffset(p.server_now) : view.offset,
+      };
+      if (p.state === "question_open") {
+        next.correctKey = undefined;
+        next.correctCount = 0;
+        next.counts = {};
+        next.total = 0;
+      }
+      return next;
+    }
+    case "question": {
+      const q = action.event;
+      return {
+        ...view,
+        hydrated: true,
+        question: {
+          position: q.position,
+          eyebrow: q.eyebrow,
+          text: q.text,
+          choices: q.choices,
+          time_limit_seconds: q.time_limit_seconds,
+          points_base: q.points_base ?? 1000,
+          media_url: q.media_url ?? null,
+        },
+        position: q.position,
+        correctKey: undefined,
+        correctCount: 0,
+        counts: {},
+        total: 0,
+      };
+    }
+    case "vote":
+      return {
+        ...view,
+        counts: action.event.counts ?? {},
+        total: action.event.total ?? 0,
+      };
+    case "reveal":
+      return {
+        ...view,
+        state: "reveal",
+        counts: action.event.counts ?? {},
+        total: action.event.total ?? 0,
+        correctCount: action.event.correct_count ?? 0,
+        leaderboard: action.event.leaderboard ?? [],
+      };
+    case "scoreboard":
+      return { ...view, leaderboard: action.event.leaderboard ?? [] };
+    case "lock":
+      return {
+        ...view,
+        registrationLocked: Boolean(action.event.registration_locked),
+        offset: action.event.server_now ? computeOffset(action.event.server_now) : view.offset,
+      };
+    case "pin":
+      return { ...view, pin: action.pin };
+    case "notFound":
+      return { ...view, notFound: action.notFound };
+    case "correctKey":
+      return { ...view, correctKey: action.key };
+  }
 }
 
 export function useGameState(gameId: string): UseGameState {
-  const [state, setState] = useState<GameState>("lobby");
-  const [position, setPosition] = useState(0);
-  const [question, setQuestion] = useState<GameQuestion | null>(null);
-  const [deadline, setDeadline] = useState<string | null>(null);
-  const [counts, setCounts] = useState<VoteCounts>({});
-  const [total, setTotal] = useState(0);
-  const [correctKey, setCorrectKey] = useState<string | undefined>(undefined);
-  const [correctCount, setCorrectCount] = useState(0);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [roster, setRoster] = useState<RosterEntry[]>([]);
-  const [pin, setPin] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const [registrationLocked, setRegistrationLocked] = useState(false);
+  const [view, dispatch] = useReducer(gameViewReducer, initialGameView);
   const [presence, setPresence] = useState<RawPresenceState>({});
   const [snapshotNonce, setSnapshotNonce] = useState(0);
 
-  const refresh = useCallback(() => setSnapshotNonce((n) => n + 1), []);
+  const refresh = () => setSnapshotNonce((n) => n + 1);
 
-  // Clock offset (server − client) in ms, refined on every snapshot/phase.
-  // It's state (not a ref) because `secondsLeft` is derived from it during
-  // render — refs can't be read during render under React Compiler.
-  const [offset, setOffset] = useState(0);
+  // Drumroll 溜め: hold the correct answer until the server's answer_reveal_at so
+  // the reveal lands in sync on every device (no second RPC). `correctKey` (the
+  // display gate) is only set when this timer fires. Passing a falsy key clears
+  // any pending timer (new question / phase reset).
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestServerTimeRef = useRef(0);
+  useEffect(
+    () => () => {
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    },
+    [],
+  );
+
   // `secondsLeft` is DERIVED at render time from `deadline` + offset (below).
   // The interval below only bumps `tick` to force a recompute each second; we
   // never store the seconds value in state, which avoids setState-in-effect.
   const [tick, setTick] = useState(0);
 
-  // Bind ALL listeners (broadcast + presence) on the freshly-created channel,
-  // BEFORE subscribe(). Stable (only closes over stable setters) so it never
-  // forces the channel to be recreated. Handlers only mutate the fields they own.
-  const bind = useCallback((ch: RealtimeChannel) => {
-    const markHydrated = () => setHydrated(true);
+  const acceptServerEvent = (serverNowIso: string | null | undefined): boolean => {
+    if (!serverNowIso) return true;
+    const serverTime = new Date(serverNowIso).getTime();
+    if (Number.isNaN(serverTime)) return true;
+    if (serverTime < latestServerTimeRef.current) return false;
+    latestServerTimeRef.current = serverTime;
+    return true;
+  };
 
+  // Bind ALL listeners (broadcast + presence) on the freshly-created channel,
+  // BEFORE subscribe(). useRealtimeChannel keeps the latest binder in a ref so
+  // render-only function identity changes never recreate the socket.
+  const bind = (ch: RealtimeChannel) => {
     const onPhase = (payload: { payload: PhaseEvent }) => {
       const p = payload.payload;
-      markHydrated();
-      if (p.server_now) setOffset(computeOffset(p.server_now));
-      setState(p.state);
-      if (typeof p.position === "number") setPosition(p.position);
-      setDeadline(p.deadline ?? null);
+      if (!acceptServerEvent(p.server_now)) return;
+      dispatch({ type: "phase", event: p });
+      // Re-pull the snapshot when the game's quiz may have changed underneath us
+      // so has_next / roster are fresh: returning to the lobby (chain advance or
+      // reset), and opening the FIRST question (a demo prepend swaps the quiz on
+      // lobby → Q1, so has_next flips to true here, before the demo's ended screen).
+      if (p.state === "lobby" || (p.state === "question_open" && p.position === 0)) {
+        setSnapshotNonce((n) => n + 1);
+      }
       if (p.state === "question_open") {
-        setCorrectKey(undefined);
-        setCorrectCount(0);
-        setCounts({});
-        setTotal(0);
+        scheduleCorrectReveal(revealTimerRef, dispatch, undefined, null, null);
       }
       setTick((t) => t + 1);
     };
 
     const onQuestion = (payload: { payload: QuestionEvent }) => {
-      markHydrated();
       const q = payload.payload;
-      setQuestion({
-        position: q.position,
-        eyebrow: q.eyebrow,
-        text: q.text,
-        choices: q.choices,
-        time_limit_seconds: q.time_limit_seconds,
-      });
-      setPosition(q.position);
-      setCorrectKey(undefined);
-      setCorrectCount(0);
-      setCounts({});
-      setTotal(0);
+      dispatch({ type: "question", event: q });
+      scheduleCorrectReveal(revealTimerRef, dispatch, undefined, null, null);
     };
 
     const onVote = (payload: { payload: VoteEvent }) => {
-      const v = payload.payload;
-      setCounts(v.counts ?? {});
-      setTotal(v.total ?? 0);
+      dispatch({ type: "vote", event: payload.payload });
     };
 
     const onReveal = (payload: { payload: RevealEvent }) => {
       const r = payload.payload;
-      setCorrectKey(r.correct_key);
-      setCounts(r.counts ?? {});
-      setTotal(r.total ?? 0);
-      setCorrectCount(r.correct_count ?? 0);
-      setLeaderboard(r.leaderboard ?? []);
-      setState("reveal");
+      if (!acceptServerEvent(r.server_now)) return;
+      // Hold the answer until answer_reveal_at (drumroll climax); counts/leaderboard
+      // are only shown alongside the answer, so they can land immediately.
+      scheduleCorrectReveal(revealTimerRef, dispatch, r.correct_key, r.answer_reveal_at ?? null, r.server_now ?? null);
+      dispatch({ type: "reveal", event: r });
     };
 
     const onScoreboard = (payload: { payload: ScoreboardEvent }) => {
-      setLeaderboard(payload.payload.leaderboard ?? []);
+      dispatch({ type: "scoreboard", event: payload.payload });
+    };
+
+    // `lock` — host toggled registration; reflect it live (no reload needed).
+    const onLock = (payload: { payload: LockEvent }) => {
+      dispatch({ type: "lock", event: payload.payload });
     };
 
     ch.on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.phase }, onPhase)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.question }, onQuestion)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.vote }, onVote)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.reveal }, onReveal)
-      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.scoreboard }, onScoreboard);
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.scoreboard }, onScoreboard)
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.lock }, onLock);
 
     // Presence (lobby roster) — MUST be bound before subscribe().
     const syncPresence = () =>
@@ -261,7 +443,7 @@ export function useGameState(gameId: string): UseGameState {
     ch.on(REALTIME_LISTEN_TYPES.PRESENCE, { event: REALTIME_PRESENCE_LISTEN_EVENTS.SYNC }, syncPresence)
       .on(REALTIME_LISTEN_TYPES.PRESENCE, { event: REALTIME_PRESENCE_LISTEN_EVENTS.JOIN }, syncPresence)
       .on(REALTIME_LISTEN_TYPES.PRESENCE, { event: REALTIME_PRESENCE_LISTEN_EVENTS.LEAVE }, syncPresence);
-  }, []);
+  };
 
   // Own the single private channel; reconnectNonce bumps drive snapshot re-pulls.
   const { channel, status, reconnectNonce } = useRealtimeChannel(gameId, bind);
@@ -274,31 +456,28 @@ export function useGameState(gameId: string): UseGameState {
 
     const pull = async (): Promise<void> => {
       try {
-        const [{ data, error }, gameRes] = await Promise.all([
-          supabase.rpc("get_game_snapshot", { p_game_id: gameId }),
-          supabase.from("games").select("pin").eq("id", gameId).maybeSingle(),
+        const [snapshotRes, pinRes] = await Promise.all([
+          getGameSnapshotAction(gameId),
+          getGamePinAction(gameId),
         ]);
         if (cancelled) return;
-        if (!gameRes.error && gameRes.data) setPin(gameRes.data.pin);
-        if (error || !data) {
-          if (error)
-            console.warn("[useGameState] snapshot failed", error.message);
+        if (pinRes.ok) dispatch({ type: "pin", pin: pinRes.pin });
+        if (!snapshotRes.ok) {
+          if (snapshotRes.error) {
+            console.warn("[useGameState] snapshot failed", snapshotRes.error);
+            // Terminal: the game row is gone (deleted / bad id / cleaned up by
+            // retention). Surface it so the screen can leave instead of looping
+            // forever on snapshot-fail + channel "Unauthorized".
+            if (/game not found|ゲームが見つかりません/i.test(snapshotRes.error)) {
+              dispatch({ type: "notFound", notFound: true });
+            }
+          }
           return;
         }
-        applySnapshot(data as unknown as GameSnapshot, {
-          setOffset,
-          setState,
-          setPosition,
-          setQuestion,
-          setDeadline,
-          setCounts,
-          setTotal,
-          setCorrectKey,
-          setLeaderboard,
-          setRoster,
-          setHydrated,
-          setRegistrationLocked,
-        });
+        const snap = snapshotRes.snapshot;
+        acceptServerEvent(snap.server_now);
+        dispatch({ type: "snapshot", snap });
+        scheduleCorrectReveal(revealTimerRef, dispatch, snap.correct_key ?? undefined, snap.answer_reveal_at ?? null, snap.server_now);
       } catch (e) {
         if (cancelled) return;
         console.warn("[useGameState] snapshot pull threw", e);
@@ -331,45 +510,73 @@ export function useGameState(gameId: string): UseGameState {
   // is DERIVED below from the absolute deadline + offset, so it self-corrects
   // against drift and we never call setState with the computed seconds here.
   useEffect(() => {
-    if (!deadline) return;
+    if (!view.deadline) return;
     const id = setInterval(() => setTick((t) => t + 1), 250);
     return () => clearInterval(id);
-  }, [deadline]);
+  }, [view.deadline]);
+
+  // Recovery guard for missed/out-of-order realtime after reveal. If the UI is
+  // still in the withheld-answer drumroll past the reveal window, pull the
+  // authoritative snapshot once. This is not polling; it only fires for a stuck
+  // "正解は...?" state and lets the DB SSOT converge the client.
+  useEffect(() => {
+    if (view.state !== "reveal") return;
+    if (view.correctKey) return;
+    const id = setTimeout(
+      () => setSnapshotNonce((n) => n + 1),
+      DRUMROLL_MS + DRUMROLL_STUCK_RECOVERY_GRACE_MS,
+    );
+    return () => clearTimeout(id);
+  }, [view.state, view.correctKey, view.position]);
 
   // Derived countdown: recomputed every render (and every tick / deadline / offset
   // change). `tick` participates so the interval-driven re-renders pick up the
   // new value as wall-clock time advances.
   void tick;
-  const secondsLeft = secondsUntil(deadline, offset);
+  const secondsLeft = secondsUntil(view.deadline, view.offset);
+  const secondsUntilAnswers = secondsUntil(view.answersOpenAt, view.offset);
+  let roundPhase: RoundPhase = null;
+  let countdownNumber = 0;
+  if (view.state === "question_open") {
+    if (!view.answersOpenAt) {
+      // Host hasn't opened answers yet — the question is parked for reading.
+      roundPhase = "await";
+    } else if (secondsUntilAnswers > 0) {
+      // 回答開始 pressed → the 3-2-1 ready countdown before answers open.
+      roundPhase = "countdown";
+      countdownNumber = Math.max(1, Math.min(COUNTDOWN_S, secondsUntilAnswers));
+    } else {
+      roundPhase = "answering";
+    }
+  }
 
   return {
-    state,
-    position,
-    question,
-    deadline,
+    state: view.state,
+    position: view.position,
+    question: view.question,
+    deadline: view.deadline,
     secondsLeft,
-    counts,
-    total,
-    correctKey,
-    revealed: state === "reveal",
-    correctCount,
-    leaderboard,
-    roster,
-    pin,
-    hydrated,
-    registrationLocked,
+    answersOpenAt: view.answersOpenAt,
+    secondsUntilAnswers,
+    roundPhase,
+    countdownNumber,
+    counts: view.counts,
+    total: view.total,
+    correctKey: view.correctKey,
+    revealed: view.state === "reveal",
+    correctCount: view.correctCount,
+    leaderboard: view.leaderboard,
+    roster: view.roster,
+    pin: view.pin,
+    hydrated: view.hydrated,
+    notFound: view.notFound,
+    registrationLocked: view.registrationLocked,
+    hasNext: view.hasNext,
+    isDemo: view.isDemo,
     channel,
     channelStatus: status,
     subscribed: status === "subscribed",
     presence,
     refresh,
   };
-}
-
-// Helper for Client Components that receive `params` as a Promise (Next 16):
-//   const { gameId } = useRouteGameId(params);
-export function useRouteGameId(params: Promise<{ gameId: string }>): {
-  gameId: string;
-} {
-  return use(params);
 }

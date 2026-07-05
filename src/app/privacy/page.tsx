@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/LegalPage";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "プライバシーポリシー — puni",
-  description: "puni（ぷに）のプライバシーポリシー",
+  title: `プライバシーポリシー — ${PRODUCT_NAME}`,
+  description: `${PRODUCT_NAME}のプライバシーポリシー`,
 };
 
 export default function PrivacyPage() {

@@ -12,18 +12,18 @@
 // Presence is ephemeral connection truth; the authoritative roster still comes
 // from get_game_snapshot in useGameState.
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { RawPresenceState } from "@/lib/realtime/useGameState";
 
-// The presence payload each client tracks about itself. role distinguishes the
+// The presence payload each client tracks about itself. kind distinguishes the
 // host big-screen from players so HostScreen can exclude itself from the count.
 export type PresenceMeta = {
   player_id: string;
   nickname: string;
   avatar_color: string | null;
   avatar_initial: string | null;
-  role: "host" | "player";
+  kind: "host" | "player";
 };
 
 export type PresenceRosterEntry = PresenceMeta & {
@@ -59,7 +59,7 @@ function flatten(state: PresenceStateShape): PresenceRosterEntry[] {
           nickname: p.nickname ?? "",
           avatar_color: p.avatar_color ?? null,
           avatar_initial: p.avatar_initial ?? null,
-          role: p.role ?? "player",
+          kind: p.kind ?? "player",
           connections: 1,
         });
       }
@@ -79,20 +79,26 @@ export function usePresence(
   presenceState: RawPresenceState,
   subscribed: boolean,
 ): UsePresence {
-  const all = useMemo(
-    () => flatten(presenceState as unknown as PresenceStateShape),
-    [presenceState],
-  );
+  const all = flatten(presenceState as unknown as PresenceStateShape);
 
   // Track self once the channel is SUBSCRIBED. Re-runs on identity / channel /
   // subscribe changes; a reconnect recreates the channel and flips subscribed,
   // so we re-track automatically.
-  const meKey = me
-    ? `${me.player_id}|${me.nickname}|${me.avatar_color}|${me.avatar_initial}|${me.role}`
-    : null;
+  const playerId = me?.player_id ?? null;
+  const nickname = me?.nickname ?? "";
+  const avatarColor = me?.avatar_color ?? null;
+  const avatarInitial = me?.avatar_initial ?? null;
+  const kind = me?.kind ?? "player";
   useEffect(() => {
-    if (!channel || !me || !subscribed) return;
-    void channel.track(me).catch(() => {
+    if (!channel || !playerId || !subscribed) return;
+    const trackedMe: PresenceMeta = {
+      player_id: playerId,
+      nickname,
+      avatar_color: avatarColor,
+      avatar_initial: avatarInitial,
+      kind,
+    };
+    void channel.track(trackedMe).catch(() => {
       // best-effort; a later reconnect re-tracks.
     });
     return () => {
@@ -100,11 +106,9 @@ export function usePresence(
       // / reconnect, which can reject. Swallow so it never surfaces unhandled.
       void channel.untrack().catch(() => {});
     };
-    // meKey captures every meaningful field of `me`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel, meKey, subscribed]);
+  }, [channel, playerId, nickname, avatarColor, avatarInitial, kind, subscribed]);
 
-  const roster = useMemo(() => all.filter((e) => e.role === "player"), [all]);
+  const roster = all.filter((e) => e.kind === "player");
 
   return { roster, count: roster.length, all };
 }

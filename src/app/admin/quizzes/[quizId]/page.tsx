@@ -1,33 +1,40 @@
-"use client";
-
-import { Suspense, use } from "react";
-import { useSearchParams } from "next/navigation";
+import { AdminInviteAccept } from "@/app/admin/AdminInviteAccept";
+import { AdminInviteRequired } from "@/app/admin/AdminInviteRequired";
+import { isAdminInviteConfigured, isValidAdminInviteToken } from "@/lib/admin/invite";
+import { adminInviteTokenForLink, hasAdminInviteAccess } from "@/lib/admin/invite-server";
 import { QuizEditorIsland } from "./QuizEditorIsland";
 
-// /admin/quizzes/[quizId] — the login-free quiz editor.
+// /admin/quizzes/[quizId] — invite-gated quiz editor.
 //
-// Capability model: the quizId comes from the route, the secret edit_token from
-// `?t=`. The editor island calls get_quiz_for_edit(quizId, token) on mount; an
-// invalid/missing token renders a clear "編集リンクが正しくありません" screen.
-// There is NO session/login — the RPCs (granted to anon) validate the token.
-//
-// Next 16: route `params` is a Promise in Client Components, so we unwrap it with
-// React's `use`. useSearchParams requires a Suspense boundary.
-export default function EditQuizPage({
+// The admin invite cookie gates access to the editor route and server actions.
+export default async function EditQuizPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ quizId: string }>;
+  searchParams: Promise<{ invite?: string | string[] | undefined }>;
 }) {
-  const { quizId } = use(params);
-  return (
-    <Suspense fallback={null}>
-      <EditorWithToken quizId={quizId} />
-    </Suspense>
-  );
-}
-
-function EditorWithToken({ quizId }: { quizId: string }) {
-  const searchParams = useSearchParams();
-  const token = searchParams.get("t") ?? "";
-  return <QuizEditorIsland quizId={quizId} token={token} />;
+  const { quizId } = await params;
+  if (!(await hasAdminInviteAccess())) {
+    const query = await searchParams;
+    const invite = Array.isArray(query.invite)
+      ? (query.invite[0] ?? "")
+      : (query.invite ?? "");
+    if (invite && isValidAdminInviteToken(invite)) {
+      return (
+        <AdminInviteAccept
+          invite={invite}
+          redirectTo={`/admin/quizzes/${quizId}`}
+        />
+      );
+    }
+    return (
+      <AdminInviteRequired
+        reason={isAdminInviteConfigured() ? undefined : "missing_config"}
+      />
+    );
+  }
+  const invite = encodeURIComponent(adminInviteTokenForLink());
+  const inviteLinkPath = `/admin/quizzes/${encodeURIComponent(quizId)}?invite=${invite}`;
+  return <QuizEditorIsland quizId={quizId} inviteLinkPath={inviteLinkPath} />;
 }

@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -23,9 +22,10 @@
   --sage: #12c08a;
   --sage-deep: #07a073;
 
-  --font-display: "Zen Maru Gothic", system-ui, sans-serif;
-  --font-body: "Zen Kaku Gothic New", system-ui, sans-serif;
-  --font-mono: "DM Mono", ui-monospace, monospace;
+  --font-sans: system-ui, sans-serif;
+  --font-display: system-ui, sans-serif;
+  --font-body: system-ui, sans-serif;
+  --font-mono: ui-monospace, monospace;
 
   --shadow-soft: 0 18px 42px -24px rgba(40, 24, 90, 0.3);
   --shadow-card: 0 1px 2px rgba(43, 26, 94, 0.05), 0 8px 22px -12px rgba(43, 26, 94, 0.18);
@@ -115,6 +115,14 @@ body {
   background-attachment: fixed;
 }
 
+/* The page content fills at least the viewport, so the global footer always sits
+   just below the fold — consistent app-wide: it's revealed by scrolling, never
+   floating mid-screen under short pages. */
+[data-page] {
+  min-height: 100vh;
+  min-height: 100lvh;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;
@@ -154,6 +162,21 @@ body {
     -webkit-text-fill-color: var(--plum-deep);
     animation: none;
   }
+}
+
+/* Editable answer-tile label input (WYSIWYG quiz editor). The tile now sits on a
+   light card with dark (--ink) text, so the placeholder is a muted ink — a white
+   one was invisible on the pale field. */
+.puni-tile-input::placeholder {
+  color: color-mix(in srgb, var(--ink-soft) 58%, transparent);
+  opacity: 1;
+}
+
+/* 制限時間ダイヤル — visible keyboard focus (mouse/touch uses the handle instead). */
+.time-dial:focus { outline: none; }
+.time-dial:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--plum) 32%, transparent);
 }
 
 @theme inline {

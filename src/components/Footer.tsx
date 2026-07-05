@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { PRODUCT_NAME, COPYRIGHT_YEAR } from "@/lib/brand";
 
 const GITHUB_URL = "https://github.com/winstally/puniquiz";
 
-// Footer — quiet legal text links along the very bottom of every page.
+// Footer — quiet legal text links below the fold on every page (scroll to reveal).
 const linkStyle: React.CSSProperties = {
   color: "var(--ink-soft)",
   textDecoration: "none",
@@ -51,7 +52,7 @@ export function Footer() {
       <span aria-hidden style={dotStyle}>
         ·
       </span>
-      <span style={{ ...linkStyle, fontWeight: 500 }}>© 2026 puni</span>
+      <span style={{ ...linkStyle, fontWeight: 500 }}>© {COPYRIGHT_YEAR} {PRODUCT_NAME}</span>
     </footer>
   );
 }

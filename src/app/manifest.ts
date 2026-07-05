@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { PRODUCT_NAME, PRODUCT_SHORT, PRODUCT_TAGLINE } from "@/lib/brand";
 
 // Web App Manifest (Next file convention — auto-injects <link rel="manifest">).
 // Drives the Android/Chrome "install / add to home screen" app icon. iOS uses
@@ -6,8 +7,8 @@ import type { MetadataRoute } from "next";
 // and are white-flattened so the maskable safe-zone reads cleanly.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "puni — live quiz lounge",
-    short_name: "puni",
+    name: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
+    short_name: PRODUCT_SHORT,
     description: "ホストの問題にみんなで投票する、大人かわいいライブクイズ",
     start_url: "/",
     display: "standalone",

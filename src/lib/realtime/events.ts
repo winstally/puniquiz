@@ -18,7 +18,7 @@ export type GameState =
 // Channel naming
 // -----------------------------------------------------------------------------
 // One private channel per game. Realtime Authorization gates it to members.
-export const GAME_CHANNEL_PREFIX = "game:" as const;
+const GAME_CHANNEL_PREFIX = "game:" as const;
 export function gameChannel(gameId: string): string {
   return `${GAME_CHANNEL_PREFIX}${gameId}`;
 }
@@ -32,6 +32,7 @@ export const GAME_EVENTS = {
   vote: "vote",
   reveal: "reveal",
   scoreboard: "scoreboard",
+  lock: "lock",
 } as const;
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
 
@@ -39,7 +40,7 @@ export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
 export type VoteCounts = Record<string, number>;
 
 // Public choice as broadcast/snapshotted (no presentational theme, no answer).
-export type PublicChoice = { key: string; label: string };
+export type PublicChoice = { key: string; label: string; image_url?: string | null };
 
 // -----------------------------------------------------------------------------
 // Broadcast payloads
@@ -51,6 +52,7 @@ export type PhaseEvent = {
   state: GameState;
   position?: number;
   deadline?: string | null; // ISO timestamptz; authoritative absolute deadline
+  answers_open_at?: string | null; // ISO; choices unlock / answer timer start
   server_now?: string; // ISO timestamptz for client clock-offset estimation
 };
 
@@ -61,6 +63,9 @@ export type QuestionEvent = {
   text: string;
   choices: PublicChoice[];
   time_limit_seconds: number;
+  /** This question's worth — full points for an instant correct answer. */
+  points_base: number;
+  media_url?: string | null;
 };
 
 // `vote` — live aggregate tally (debounced server-side). Aggregate-only.
@@ -69,18 +74,30 @@ export type VoteEvent = {
   total: number;
 };
 
-// `reveal` — the ONLY message that carries correct_key.
+// `reveal` — carries correct_key + the absolute moment the answer should appear
+// (answer_reveal_at). Clients hold the answer ("正解は…？") until then so the
+// drumroll lands in sync with no second RPC. server_now anchors the delay.
 export type RevealEvent = {
   correct_key: string;
   counts: VoteCounts;
   total: number;
   correct_count: number;
   leaderboard: LeaderboardEntry[];
+  /** ISO; when the answer should become visible (drumroll climax). */
+  answer_reveal_at?: string | null;
+  /** ISO; server clock at send, to compute the hold duration without offset. */
+  server_now?: string;
 };
 
 // `scoreboard` — leaderboard between questions / at game end.
 export type ScoreboardEvent = {
   leaderboard: LeaderboardEntry[];
+};
+
+// `lock` — host toggled whether new players can still join (registration lock).
+export type LockEvent = {
+  registration_locked: boolean;
+  server_now?: string; // ISO timestamptz for client clock-offset estimation
 };
 
 // Discriminated map of event name -> payload (for typed channel.on handlers).
@@ -90,6 +107,7 @@ export type GameEventPayloadMap = {
   vote: VoteEvent;
   reveal: RevealEvent;
   scoreboard: ScoreboardEvent;
+  lock: LockEvent;
 };
 
 // -----------------------------------------------------------------------------
@@ -130,6 +148,9 @@ export type SnapshotQuestion = {
   text: string;
   choices: PublicChoice[];
   time_limit_seconds: number;
+  /** This question's worth — full points for an instant correct answer. */
+  points_base: number;
+  media_url?: string | null;
 };
 
 export type GameSnapshot = {
@@ -139,7 +160,12 @@ export type GameSnapshot = {
   phase_deadline: string | null; // ISO timestamptz
   server_now: string; // ISO timestamptz; for clock-offset estimation
   registration_locked?: boolean; // host stopped new joins
+  has_next?: boolean; // a next quiz is queued → after ending, can continue same game
+  is_demo?: boolean; // the current quiz is the curated demo (server truth)
+  answers_open_at?: string | null; // ISO; choices unlock / answer timer start
   correct_key: string | null; // only set once the current round is revealed
+  answer_reveal_at?: string | null; // ISO; when the answer should appear (client gate)
+  correct_count?: number; // authoritative correct-answer count (reveal only); 0 otherwise
   my_answer: MyAnswer | null;
   vote: VoteEvent | null;
   roster: RosterEntry[];
