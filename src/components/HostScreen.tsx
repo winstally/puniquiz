@@ -363,6 +363,7 @@ function BoardPanel({
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             {showTimerRing ? (
               <CountdownRing
+                key={isCountdown ? "countdown" : "answering"}
                 seconds={isCountdown ? countdownNumber : seconds}
                 total={isCountdown ? COUNTDOWN_S : totalSeconds}
                 size={48}
