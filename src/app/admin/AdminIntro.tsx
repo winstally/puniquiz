@@ -14,6 +14,8 @@ import { useRecentQuizzes } from "@/lib/admin/recent-quizzes";
 import { createQuizAction, startDemoGameAction, startGameForQuizAction } from "@/app/actions";
 import { cardStyle } from "./admin-styles";
 
+const DEMO_CONFIRM_ID = "__demo__";
+
 const recentQuizTitleStyle = {
   flex: 1,
   minWidth: 0,
@@ -73,7 +75,9 @@ export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean 
     setStartChoiceId(null);
     setPendingId(quizId);
     startHost(async () => {
-      const res = await startGameForQuizAction(quizId);
+      const res = quizId === DEMO_CONFIRM_ID
+        ? await startDemoGameAction()
+        : await startGameForQuizAction(quizId);
       setPendingId(null);
       if (!res.ok) {
         toast.error(res.error);
@@ -119,6 +123,39 @@ export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean 
       >
         {creating ? "作成中…" : "新しいクイズを作る"}
       </PuniButton>
+
+      <div style={{ ...cardStyle, gap: 18, padding: "24px clamp(22px, 4vw, 32px)" }}>
+        <div style={sectionLabel}>デモクイズ</div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ ...recentQuizTitleStyle, whiteSpace: "normal" }}>
+              写真を見て答えるスイーツ早押しクイズ
+            </div>
+            <p style={{ margin: "6px 0 0", color: "var(--ink-soft)", fontSize: 13, lineHeight: 1.5 }}>
+              すぐに開始できるサンプルです。
+            </p>
+          </div>
+          <PuniButton
+            type="button"
+            variant="plum"
+            size="sm"
+            wide
+            icon={Play}
+            iconFilled
+            disabled={hosting}
+            onClick={() => host(DEMO_CONFIRM_ID)}
+          >
+            {hosting && pendingId === DEMO_CONFIRM_ID ? "開始中…" : "ゲーム開始"}
+          </PuniButton>
+        </div>
+      </div>
 
       {/* Your quizzes — those saved on this device (edit or start). Only shown when
           there are any. Reopening a quiz made elsewhere is just opening its edit
@@ -177,7 +214,7 @@ export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean 
         {startChoiceId ? (
           <ConfirmDialog
             title="ゲームを開始しますか？"
-            description="参加者を集めるロビーに移動します。"
+            description={startChoiceId === DEMO_CONFIRM_ID ? "デモクイズのロビーに移動します。" : "参加者を集めるロビーに移動します。"}
             confirmLabel="開始する"
             cancelLabel="キャンセル"
             pending={hosting}
