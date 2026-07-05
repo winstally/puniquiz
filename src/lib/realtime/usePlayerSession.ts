@@ -96,6 +96,21 @@ async function submitChoice(
   }
 }
 
+function friendlyAnswerError(error: string | null): string {
+  const message = error ?? "";
+  if (
+    /deadline|not accepting|answers not open|closed|declined|timeout|timed out/i.test(
+      message,
+    )
+  ) {
+    return "タップが締切に間に合いませんでした";
+  }
+  if (/auth|member|player|session|サインイン/i.test(message)) {
+    return "参加情報を確認できませんでした";
+  }
+  return "タップが間に合いませんでした";
+}
+
 export function usePlayerSession(
   gameId: string,
   answerScope: string | null,
@@ -198,7 +213,9 @@ export function usePlayerSession(
       if (!submitted.ok) {
         // Hard failure (closed round, deadline passed, not a member, ...).
         setPicked(previous);
-        toast.error("回答できませんでした", { description: submitted.error ?? undefined });
+        toast.error(friendlyAnswerError(submitted.error), {
+          description: "次の問題で挑戦してね",
+        });
         submitInFlight.current = false;
         setSubmitting(false);
         return;

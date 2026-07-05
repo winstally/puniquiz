@@ -33,6 +33,17 @@ export type ActionResult<T> =
   | ({ ok: true } & T)
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
+function submitAnswerErrorMessage(error: string | null | undefined): string {
+  const message = error ?? "";
+  if (/deadline|not accepting|answers not open|closed|declined|timeout|timed out/i.test(message)) {
+    return "タップが締切に間に合いませんでした";
+  }
+  if (/auth|member|player|session|サインイン/i.test(message)) {
+    return "参加情報を確認できませんでした";
+  }
+  return "タップが間に合いませんでした";
+}
+
 // Ensure the current request has a Supabase session (anonymous if needed) and
 // return the resolved user id. Re-checked inside every action (defense in depth;
 // the proxy refresh alone is not authorization).
@@ -302,11 +313,11 @@ export async function submitAnswerAction(
       p_game_id: parsedGameId.data,
       p_choice_key: parsedChoiceKey.data,
     });
-    if (error) return { ok: false, error: error.message };
-    if (!data) return { ok: false, error: "回答できませんでした" };
+    if (error) return { ok: false, error: submitAnswerErrorMessage(error.message) };
+    if (!data) return { ok: false, error: "タップが間に合いませんでした" };
     return { ok: true, result: data as unknown as SubmitAnswerResult };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "不明なエラー" };
+    return { ok: false, error: submitAnswerErrorMessage(e instanceof Error ? e.message : null) };
   }
 }
 

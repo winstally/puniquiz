@@ -25,7 +25,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { hydrateChoices } from "@/lib/quiz";
-import { DRUMROLL_MS } from "@/lib/reveal-timing";
 import { useGameState } from "@/lib/realtime/useGameState";
 import { usePlayerSession } from "@/lib/realtime/usePlayerSession";
 import { usePresence, type PresenceMeta } from "@/lib/realtime/usePresence";
@@ -195,6 +194,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
   const rank = myIndex >= 0 ? myIndex + 1 : null;
   const points = myIndex >= 0 ? game.leaderboard[myIndex].total_points : 0;
   const totalPlayers = game.leaderboard.length;
+  const standingMaxPoints = ended ? game.maxPoints : game.scoreMaxPoints;
 
   // Cancel participation: confirm, delete the player row, then go home.
   const handleLeaveConfirm = async () => {
@@ -214,8 +214,6 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       onPick={session.pick}
       roundPhase={game.roundPhase}
       countdownNumber={game.countdownNumber}
-      revealCountdownNumber={game.revealCountdownNumber}
-      revealCountdownTotal={DRUMROLL_MS / 1000}
       awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
       finalNickname={nickname}
@@ -228,7 +226,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       scoreboard={showScoreboard}
       rank={rank}
       points={points}
-      maxPoints={game.maxPoints}
+      maxPoints={standingMaxPoints}
       totalPlayers={totalPlayers}
     />
 

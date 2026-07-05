@@ -83,6 +83,8 @@ export type RevealEvent = {
   total: number;
   correct_count: number;
   leaderboard: LeaderboardEntry[];
+  /** Max score available at this point in the quiz. */
+  score_max_points?: number;
   /** ISO; when the answer should become visible (drumroll climax). */
   answer_reveal_at?: string | null;
   /** ISO; server clock at send, to compute the hold duration without offset. */
@@ -92,6 +94,8 @@ export type RevealEvent = {
 // `scoreboard` — leaderboard between questions / at game end.
 export type ScoreboardEvent = {
   leaderboard: LeaderboardEntry[];
+  /** Max score available at this point in the quiz. */
+  score_max_points?: number;
 };
 
 // `lock` — host toggled whether new players can still join (registration lock).
@@ -167,6 +171,7 @@ export type GameSnapshot = {
   answer_reveal_at?: string | null; // ISO; when the answer should appear (client gate)
   correct_count?: number; // authoritative correct-answer count (reveal only); 0 otherwise
   max_points?: number; // current quiz's maximum possible total score
+  score_max_points?: number; // max score available for the current ranking view
   my_answer: MyAnswer | null;
   vote: VoteEvent | null;
   roster: RosterEntry[];

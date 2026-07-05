@@ -150,8 +150,6 @@ export function PlayerBoard({
   onPick,
   roundPhase = null,
   countdownNumber = 0,
-  revealCountdownNumber = 0,
-  revealCountdownTotal = 4,
   awardedPoints = null,
   hapticsEnabled = false,
 }: {
@@ -162,8 +160,6 @@ export function PlayerBoard({
   onPick: (key: string) => void;
   roundPhase?: RoundPhase;
   countdownNumber?: number;
-  revealCountdownNumber?: number;
-  revealCountdownTotal?: number;
   hapticsEnabled?: boolean;
   /** Points earned this round (set at reveal); speed-weighted. The phone is just
    *  a controller — the host screen shows the question's worth, so this personal
@@ -206,13 +202,7 @@ export function PlayerBoard({
   // Reveal 溜め — the server withholds the answer during the host's drumroll, so
   // show the shared suspense prompt until correct_key arrives (reveal_answer).
   if (revealed && !correct) {
-    return (
-      <RevealSuspense
-        variant="player"
-        countdownNumber={revealCountdownNumber}
-        countdownTotal={revealCountdownTotal}
-      />
-    );
+    return <RevealSuspense variant="player" />;
   }
 
   // Reveal — the answer card. The full-screen tint + candy rain are painted by the

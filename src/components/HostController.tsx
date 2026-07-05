@@ -197,12 +197,9 @@ export function HostController({
       ) : state === "ended" ? (
         <Leaderboard leaderboard={game.leaderboard} final maxPoints={game.maxPoints} />
       ) : state === "scoreboard" ? (
-        <Leaderboard leaderboard={game.leaderboard} final={false} maxPoints={game.maxPoints} />
+        <Leaderboard leaderboard={game.leaderboard} final={false} maxPoints={game.scoreMaxPoints} />
       ) : drumrolling ? (
-        <HostRevealSuspense
-          countdownNumber={game.revealCountdownNumber}
-          countdownTotal={DRUMROLL_MS / 1000}
-        />
+        <HostRevealSuspense />
       ) : (
         <HostScreen
           choices={choices}
@@ -414,7 +411,7 @@ function HostControls({
       primary = { label: "正解発表", onClick: onReveal };
       break;
     case "reveal":
-      primary = { label: "つぎへ", onClick: onNext, icon: Trophy };
+      primary = { label: "結果発表へ", onClick: onNext, icon: Trophy };
       break;
     case "scoreboard":
       primary = { label: "次の問題へ", onClick: onNext, icon: ArrowRight };

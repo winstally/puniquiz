@@ -93,10 +93,6 @@ export type UseGameState = {
   total: number;
   /** Undefined until the round is revealed (snapshot post-reveal or `reveal`). */
   correctKey: string | undefined;
-  /** ISO time the withheld correct answer becomes visible, or null. */
-  answerRevealAt: string | null;
-  /** Whole seconds until the withheld correct answer appears (0 once visible). */
-  revealCountdownNumber: number;
   /** Convenience: true when state === "reveal". */
   revealed: boolean;
   /** Number of correct answers this round (set at reveal). */
@@ -118,6 +114,8 @@ export type UseGameState = {
   isDemo: boolean;
   /** Current quiz's maximum possible total score. */
   maxPoints: number;
+  /** Maximum possible score for the current ranking view. */
+  scoreMaxPoints: number;
   /** Underlying channel (for usePresence track / host broadcasts). */
   channel: RealtimeChannel | null;
   /** Coarse channel connection status. */
@@ -217,7 +215,6 @@ type GameViewState = {
   counts: VoteCounts;
   total: number;
   correctKey: string | undefined;
-  answerRevealAt: string | null;
   correctCount: number;
   leaderboard: LeaderboardEntry[];
   roster: RosterEntry[];
@@ -228,6 +225,7 @@ type GameViewState = {
   hasNext: boolean;
   isDemo: boolean;
   maxPoints: number;
+  scoreMaxPoints: number;
   offset: number;
 };
 
@@ -252,7 +250,6 @@ const initialGameView: GameViewState = {
   counts: {},
   total: 0,
   correctKey: undefined,
-  answerRevealAt: null,
   correctCount: 0,
   leaderboard: [],
   roster: [],
@@ -263,6 +260,7 @@ const initialGameView: GameViewState = {
   hasNext: false,
   isDemo: false,
   maxPoints: 0,
+  scoreMaxPoints: 0,
   offset: 0,
 };
 
@@ -280,7 +278,6 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         counts: snap.vote?.counts ?? {},
         total: snap.vote?.total ?? 0,
         correctKey: undefined,
-        answerRevealAt: snap.answer_reveal_at ?? null,
         correctCount: snap.correct_count ?? 0,
         leaderboard: snap.leaderboard ?? [],
         roster: snap.roster ?? [],
@@ -288,6 +285,7 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         hasNext: snap.has_next ?? false,
         isDemo: snap.is_demo ?? false,
         maxPoints: snap.max_points ?? view.maxPoints,
+        scoreMaxPoints: snap.score_max_points ?? snap.max_points ?? view.scoreMaxPoints,
         offset: computeOffset(snap.server_now),
         hydrated: true,
         notFound: false,
@@ -306,20 +304,20 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
       };
       if (p.state === "question_open") {
         next.correctKey = undefined;
-        next.answerRevealAt = null;
         next.correctCount = 0;
         next.counts = {};
         next.total = 0;
         next.leaderboard = [];
+        next.scoreMaxPoints = 0;
       }
       if (p.state === "lobby") {
         next.question = null;
         next.correctKey = undefined;
-        next.answerRevealAt = null;
         next.correctCount = 0;
         next.counts = {};
         next.total = 0;
         next.leaderboard = [];
+        next.scoreMaxPoints = 0;
       }
       return next;
     }
@@ -339,10 +337,10 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         },
         position: q.position,
         correctKey: undefined,
-        answerRevealAt: null,
         correctCount: 0,
         counts: {},
         total: 0,
+        scoreMaxPoints: 0,
       };
     }
     case "vote":
@@ -355,15 +353,19 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
       return {
         ...view,
         state: "reveal",
-        answerRevealAt: action.event.answer_reveal_at ?? null,
         counts: action.event.counts ?? {},
         total: action.event.total ?? 0,
         correctCount: action.event.correct_count ?? 0,
         leaderboard: action.event.leaderboard ?? [],
+        scoreMaxPoints: action.event.score_max_points ?? view.scoreMaxPoints,
         offset: action.event.server_now ? computeOffset(action.event.server_now) : view.offset,
       };
     case "scoreboard":
-      return { ...view, leaderboard: action.event.leaderboard ?? [] };
+      return {
+        ...view,
+        leaderboard: action.event.leaderboard ?? [],
+        scoreMaxPoints: action.event.score_max_points ?? view.scoreMaxPoints,
+      };
     case "lock":
       return {
         ...view,
@@ -542,11 +544,10 @@ export function useGameState(gameId: string): UseGameState {
   // is DERIVED below from the absolute deadline + offset, so it self-corrects
   // against drift and we never call setState with the computed seconds here.
   useEffect(() => {
-    const tickingReveal = view.state === "reveal" && !view.correctKey && view.answerRevealAt;
-    if (!view.deadline && !tickingReveal) return;
+    if (!view.deadline) return;
     const id = setInterval(() => setTick((t) => t + 1), 250);
     return () => clearInterval(id);
-  }, [view.deadline, view.state, view.correctKey, view.answerRevealAt]);
+  }, [view.deadline]);
 
   // Recovery guard for missed/out-of-order realtime after reveal. If the UI is
   // still in the withheld-answer drumroll past the reveal window, pull the
@@ -569,8 +570,6 @@ export function useGameState(gameId: string): UseGameState {
   const secondsLeft = secondsUntil(view.deadline, view.offset);
   const msUntilAnswers = msUntil(view.answersOpenAt, view.offset);
   const secondsUntilAnswers = Math.ceil(msUntilAnswers / 1000);
-  const msUntilAnswerReveal = msUntil(view.answerRevealAt, view.offset);
-  const revealCountdownNumber = Math.ceil(msUntilAnswerReveal / 1000);
   let roundPhase: RoundPhase = null;
   let countdownNumber = 0;
   if (view.state === "question_open") {
@@ -600,8 +599,6 @@ export function useGameState(gameId: string): UseGameState {
     counts: view.counts,
     total: view.total,
     correctKey: view.correctKey,
-    answerRevealAt: view.answerRevealAt,
-    revealCountdownNumber,
     revealed: view.state === "reveal",
     correctCount: view.correctCount,
     leaderboard: view.leaderboard,
@@ -613,6 +610,7 @@ export function useGameState(gameId: string): UseGameState {
     hasNext: view.hasNext,
     isDemo: view.isDemo,
     maxPoints: view.maxPoints,
+    scoreMaxPoints: view.scoreMaxPoints,
     channel,
     channelStatus: status,
     subscribed: status === "subscribed",

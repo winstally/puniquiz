@@ -179,8 +179,6 @@ export function PhoneScreen({
   totalPlayers = 0,
   roundPhase = null,
   countdownNumber = 0,
-  revealCountdownNumber = 0,
-  revealCountdownTotal = 4,
   hapticsEnabled = true,
   awardedPoints = null,
   onLeave,
@@ -210,9 +208,6 @@ export function PhoneScreen({
   roundPhase?: RoundPhase;
   /** 3-2-1 number during the countdown sub-phase. */
   countdownNumber?: number;
-  /** Remaining seconds while "正解は…？" holds before the answer reveal. */
-  revealCountdownNumber?: number;
-  revealCountdownTotal?: number;
   /** Best-effort vibration feedback on supported play-side devices. */
   hapticsEnabled?: boolean;
   /** Points earned this round (set at reveal); speed-weighted. Shown small on
@@ -323,8 +318,6 @@ export function PhoneScreen({
         onPick={onPick}
         roundPhase={roundPhase}
         countdownNumber={countdownNumber}
-        revealCountdownNumber={revealCountdownNumber}
-        revealCountdownTotal={revealCountdownTotal}
         hapticsEnabled={hapticsEnabled}
         awardedPoints={awardedPoints}
       />
