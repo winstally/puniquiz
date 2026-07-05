@@ -3,9 +3,9 @@
 // PlayerStanding — the SINGLE source of truth for "where this player stands" on
 // the phone: the between-rounds scoreboard AND the final result. Built on the
 // original between-rounds design (heading → crown → trophy medallion → points →
-// "X位 ／N人中") so the two never drift. `final` adds the celebration (confetti +
-// "おつかれさま" heading); the mid-round version stays calm and tags a
-// "次の問題を待っています" beat. Medal palette matches the host <Leaderboard/>.
+// "X位 ／N人中") so the two never drift. `final` adds the celebration/confetti;
+// the mid-round version stays calm and tags a "次の問題を待っています" beat.
+// Medal palette matches the host <Leaderboard/>.
 
 import { useEffect, useRef } from "react";
 import { m } from "motion/react";
@@ -87,13 +87,11 @@ async function runStandingConfetti({
 }
 
 export function PlayerStanding({
-  nickname,
   rank,
   points,
   totalPlayers,
   final,
 }: {
-  nickname: string;
   rank: number | null;
   points: number;
   totalPlayers: number;
@@ -126,7 +124,7 @@ export function PlayerStanding({
       style={standingRootStyle}
     >
       <p style={{ margin: 0, color: "var(--ink)", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19, letterSpacing: "0.01em" }}>
-        {final ? `おつかれさま、${nickname}さん` : "現在のランキング"}
+        {final ? "おつかれさま" : "現在のランキング"}
       </p>
 
       {crown ? (

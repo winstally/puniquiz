@@ -210,7 +210,6 @@ export function PhoneScreen({
       <PhoneFrame {...headerProps}>
         <PlayerStanding
           final
-          nickname={nickname}
           rank={rank}
           points={points}
           totalPlayers={totalPlayers}
@@ -227,7 +226,6 @@ export function PhoneScreen({
       <PhoneFrame {...headerProps}>
         <PlayerStanding
           final={false}
-          nickname={nickname}
           rank={rank}
           points={points}
           totalPlayers={totalPlayers}
