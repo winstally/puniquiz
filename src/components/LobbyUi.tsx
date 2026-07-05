@@ -8,6 +8,7 @@ import { PuniButton } from "@/components/PuniButton";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Status } from "@/components/ui/status";
 import { softPillStyle } from "@/components/lobby-styles";
+import { glowHaloStyle } from "@/components/glow-halo";
 import { formatPin } from "@/lib/pin";
 
 /** Bouncing-dot palette — shared by host lobby heading and player waiting. */
@@ -159,10 +160,7 @@ export function LobbyHeroGlow({ children }: { children: ReactNode }) {
         animate={reduce ? undefined : { opacity: [0.4, 0.85, 0.4], scale: [0.95, 1.06, 0.95] }}
         transition={reduce ? undefined : { duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
         style={{
-          position: "absolute",
-          inset: -24,
-          borderRadius: 46,
-          background: "radial-gradient(closest-side, rgba(124,92,252,0.30), rgba(124,92,252,0))",
+          ...glowHaloStyle("var(--plum)", { inset: -24, borderRadius: 46 }),
           zIndex: 0,
         }}
       />

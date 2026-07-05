@@ -17,6 +17,7 @@ import type { RoundPhase } from "@/lib/realtime/useGameState";
 import { useDemoLoop, type DemoPhase } from "@/components/demoLoop";
 import { FloatingShapes } from "@/components/PuniDecor";
 import { DEMO_QUIZ_TEMPLATE, getDemoQuestionMedia } from "@/lib/demo-quiz";
+import { glowHaloStyle } from "@/components/glow-halo";
 
 // Hydration-safe "are we on the client yet" — false on the server AND the first
 // client (hydration) render, true afterwards. Lets the demo render the same
@@ -56,7 +57,7 @@ function Features() {
               <span
                 className="feat-glow"
                 aria-hidden
-                style={{ background: `radial-gradient(circle at 50% 46%, color-mix(in oklch, ${it.accent} 30%, #fff), transparent 70%)` }}
+                style={glowHaloStyle(it.accent)}
               />
               <Image src={it.icon} alt="" width={140} height={140} className="feat-art-img" unoptimized />
               <span className="feat-num" style={{ background: it.deep }}>{it.n}</span>
@@ -337,10 +338,6 @@ export function LandingStory() {
         }
         /* Soft hazy halo behind the candy — blurred so it reads as a diffuse glow,
            kept on its own layer so the candy art itself stays crisp. */
-        .feat-glow {
-          position: absolute; inset: -18%; border-radius: 999px; z-index: 0;
-          filter: blur(22px); opacity: 0.85; pointer-events: none;
-        }
         .feat:hover .feat-art { transform: translateY(-4px); }
         .feat-art-img { position: relative; z-index: 1; width: 100px; height: 100px; object-fit: contain; display: block; filter: drop-shadow(0 10px 16px rgba(0,0,0,0.16)); }
         .feat-num {

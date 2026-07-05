@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import Image from "next/image";
 import { ImagePlus } from "lucide-react";
+import { glowHaloStyle } from "@/components/glow-halo";
 import {
   answerChoiceCardStyle,
   answerChoiceCheckButtonStyle,
@@ -199,13 +200,7 @@ function AnswerChoiceImage({
     <div style={{ position: "relative", display: "grid", placeItems: "center", marginTop: 8 }}>
       <span
         aria-hidden
-        style={{
-          position: "absolute",
-          width: size + 2,
-          height: size + 2,
-          borderRadius: "50%",
-          background: `radial-gradient(circle, color-mix(in srgb, ${choice.color} 22%, white) 28%, rgba(255,255,255,0) 72%)`,
-        }}
+        style={glowHaloStyle(choice.color)}
       />
       <span style={{ position: "relative", filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.14))" }}>
         <Image
@@ -244,13 +239,7 @@ export function AnswerChoicePhoto({
       <div style={{ position: "relative", display: "inline-grid", placeItems: "center", width: size, height: size, marginTop: 8 }}>
         <span
           aria-hidden
-          style={{
-            position: "absolute",
-            width: size + 2,
-            height: size + 2,
-            borderRadius: "50%",
-            background: `radial-gradient(circle, color-mix(in srgb, ${choice.color} 22%, white) 28%, rgba(255,255,255,0) 72%)`,
-          }}
+          style={glowHaloStyle(choice.color)}
         />
         <Image
           src={choice.icon}
