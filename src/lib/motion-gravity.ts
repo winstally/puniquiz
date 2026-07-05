@@ -12,9 +12,34 @@ type PermissionCapable<T> = T & {
 };
 
 const RAD = Math.PI / 180;
+let motionPermissionRequested = false;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+export function requestMotionPermission(): void {
+  if (motionPermissionRequested) return;
+  motionPermissionRequested = true;
+  if (typeof window === "undefined") return;
+
+  const DeviceOrientation = window.DeviceOrientationEvent as
+    | PermissionCapable<typeof DeviceOrientationEvent>
+    | undefined;
+  const DeviceMotion = window.DeviceMotionEvent as
+    | PermissionCapable<typeof DeviceMotionEvent>
+    | undefined;
+  const requests: Promise<string>[] = [];
+
+  if (typeof DeviceOrientation?.requestPermission === "function") {
+    requests.push(DeviceOrientation.requestPermission());
+  }
+  if (typeof DeviceMotion?.requestPermission === "function") {
+    requests.push(DeviceMotion.requestPermission());
+  }
+
+  if (requests.length === 0) return;
+  void Promise.allSettled(requests);
 }
 
 export function attachMotionGravity({
@@ -26,7 +51,6 @@ export function attachMotionGravity({
   let lastX = 0;
   let lastY = gravity;
   let lastOrientationAt = 0;
-  let permissionRequested = false;
 
   const setGravity = (x: number, y: number) => {
     if (Math.abs(x - lastX) < 0.04 && Math.abs(y - lastY) < 0.04) return;
@@ -56,42 +80,24 @@ export function attachMotionGravity({
     setGravity(x, gravity);
   };
 
-  const requestMotionPermission = () => {
-    if (permissionRequested) return;
-    permissionRequested = true;
-
-    const DeviceOrientation = window.DeviceOrientationEvent as
-      | PermissionCapable<typeof DeviceOrientationEvent>
-      | undefined;
-    const DeviceMotion = window.DeviceMotionEvent as
-      | PermissionCapable<typeof DeviceMotionEvent>
-      | undefined;
-    const requests: Promise<string>[] = [];
-
-    if (typeof DeviceOrientation?.requestPermission === "function") {
-      requests.push(DeviceOrientation.requestPermission());
-    }
-    if (typeof DeviceMotion?.requestPermission === "function") {
-      requests.push(DeviceMotion.requestPermission());
-    }
-
-    if (requests.length === 0) return;
-    void Promise.allSettled(requests).then(() => onWake?.());
+  const requestMotionPermissionAndWake = () => {
+    requestMotionPermission();
+    onWake?.();
   };
 
   window.addEventListener("deviceorientation", onOrientation);
   window.addEventListener("deviceorientationabsolute", onOrientation as EventListener);
   window.addEventListener("devicemotion", onMotion);
-  window.addEventListener("pointerdown", requestMotionPermission, { passive: true });
-  window.addEventListener("touchend", requestMotionPermission, { passive: true });
-  window.addEventListener("click", requestMotionPermission, { passive: true });
+  window.addEventListener("pointerdown", requestMotionPermissionAndWake, { passive: true });
+  window.addEventListener("touchend", requestMotionPermissionAndWake, { passive: true });
+  window.addEventListener("click", requestMotionPermissionAndWake, { passive: true });
 
   return () => {
     window.removeEventListener("deviceorientation", onOrientation);
     window.removeEventListener("deviceorientationabsolute", onOrientation as EventListener);
     window.removeEventListener("devicemotion", onMotion);
-    window.removeEventListener("pointerdown", requestMotionPermission);
-    window.removeEventListener("touchend", requestMotionPermission);
-    window.removeEventListener("click", requestMotionPermission);
+    window.removeEventListener("pointerdown", requestMotionPermissionAndWake);
+    window.removeEventListener("touchend", requestMotionPermissionAndWake);
+    window.removeEventListener("click", requestMotionPermissionAndWake);
   };
 }

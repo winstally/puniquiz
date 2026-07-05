@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { MotionProvider } from "@/components/MotionProvider";
+import { MotionGravityPrimer } from "@/components/MotionGravityPrimer";
 import { Footer } from "@/components/Footer";
 import { PRODUCT_NAME, PRODUCT_TAGLINE } from "@/lib/brand";
 
@@ -18,6 +19,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <body>
+        <MotionGravityPrimer />
         <MotionProvider>
           <div data-page>{children}</div>
           <Footer />
