@@ -20,7 +20,7 @@ export const MAX_POINTS = 5000;
 
 // Default new-question scaffold values, surfaced to the client form too.
 export const DEFAULT_TIME_LIMIT = 20;
-export const DEFAULT_POINTS_BASE = 1000;
+export const DEFAULT_POINTS_BASE = 100;
 
 // Map a 0-based choice index to its canonical key (a/b/c/d).
 export function keyForIndex(index: number): ChoiceKey {

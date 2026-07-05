@@ -138,9 +138,6 @@ export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean 
             <div style={{ ...recentQuizTitleStyle, whiteSpace: "normal" }}>
               写真を見て答えるスイーツ早押しクイズ
             </div>
-            <p style={{ margin: "6px 0 0", color: "var(--ink-soft)", fontSize: 13, lineHeight: 1.5 }}>
-              すぐに開始できるサンプルです。
-            </p>
           </div>
           <PuniButton
             type="button"

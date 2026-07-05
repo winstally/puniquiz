@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useRef } from "react";
 import {
   MAX_POINTS,
   MAX_TIME_LIMIT,
@@ -45,16 +45,6 @@ const rootStyle = {
   cursor: "pointer",
   touchAction: "none",
   borderRadius: "50%",
-} as const;
-
-const rangeInputStyle = {
-  position: "absolute",
-  inset: 0,
-  width: "100%",
-  height: "100%",
-  opacity: 0,
-  cursor: "pointer",
-  touchAction: "none",
 } as const;
 
 // Fixed column width + a reserved single-line caption so nothing reflows when the
@@ -128,17 +118,87 @@ function Dial({
   const curAng = angleFor(index, count);
   const handle = point(curAng);
   const endPt = point(START + SWEEP, RADIUS + 16);
+  const pointerId = useRef<number | null>(null);
 
   const setIndex = (i: number) => {
     const c = Math.max(0, Math.min(count - 1, i));
     onChange(infinity && c === infIndex ? null : stops[c]);
   };
 
+  const setFromPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    const raw = (Math.atan2(x, -y) * 180) / Math.PI;
+    const angle = raw < 0 ? raw + 360 : raw;
+    let progress = angle - START;
+    if (progress < 0) progress += 360;
+    if (progress > SWEEP) {
+      const distanceToEnd = progress - SWEEP;
+      const distanceToStart = 360 - progress;
+      progress = distanceToEnd <= distanceToStart ? SWEEP : 0;
+    }
+    setIndex(Math.round((progress / SWEEP) * (count - 1)));
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 5 : 1;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowUp":
+        e.preventDefault();
+        setIndex(index + step);
+        break;
+      case "ArrowLeft":
+      case "ArrowDown":
+        e.preventDefault();
+        setIndex(index - step);
+        break;
+      case "Home":
+        e.preventDefault();
+        setIndex(0);
+        break;
+      case "End":
+        e.preventDefault();
+        setIndex(count - 1);
+        break;
+    }
+  };
+
   const numberSize = value != null && String(value).length >= 4 ? 26 : 32;
 
   return (
     <div style={columnStyle}>
-      <div className="time-dial" style={rootStyle}>
+      <div
+        className="time-dial"
+        role="slider"
+        tabIndex={0}
+        aria-label={ariaLabel}
+        aria-valuemin={0}
+        aria-valuemax={count - 1}
+        aria-valuenow={index}
+        aria-valuetext={isInfinite ? infiniteValueText : `${value}${unit}`}
+        style={rootStyle}
+        onPointerDown={(e) => {
+          pointerId.current = e.pointerId;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setFromPointer(e);
+        }}
+        onPointerMove={(e) => {
+          if (pointerId.current !== e.pointerId) return;
+          setFromPointer(e);
+        }}
+        onPointerUp={(e) => {
+          if (pointerId.current !== e.pointerId) return;
+          pointerId.current = null;
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+        onPointerCancel={(e) => {
+          if (pointerId.current !== e.pointerId) return;
+          pointerId.current = null;
+        }}
+        onKeyDown={onKeyDown}
+      >
         <svg width={SIZE} height={SIZE} style={{ display: "block", overflow: "visible" }} aria-hidden>
           <defs>
             <linearGradient id={`${gid}-arc`} x1="0" y1="1" x2="1" y2="0">
@@ -192,17 +252,6 @@ function Dial({
         {infinity && !isInfinite ? (
           <span aria-hidden style={{ ...endMarkStyle, left: endPt.x, top: endPt.y, color: "var(--ink-soft)" }}>∞</span>
         ) : null}
-        <input
-          type="range"
-          aria-label={ariaLabel}
-          aria-valuetext={isInfinite ? infiniteValueText : `${value}${unit}`}
-          min={0}
-          max={count - 1}
-          step={1}
-          value={index}
-          onChange={(e) => setIndex(Number(e.currentTarget.value))}
-          style={rangeInputStyle}
-        />
       </div>
       <p style={captionStyle}>{caption(isInfinite)}</p>
     </div>
