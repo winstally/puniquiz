@@ -238,8 +238,38 @@ export function AnswerChoicePhoto({
   choice: ChoiceVisual;
   size?: number;
 }) {
-  if (!choice.image_url) return null;
   const gummy = Math.round(size * 0.42);
+  if (!choice.image_url) {
+    return (
+      <div style={{ position: "relative", display: "inline-grid", placeItems: "center", width: size, height: size, marginTop: 8 }}>
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            width: size + 2,
+            height: size + 2,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, color-mix(in srgb, ${choice.color} 22%, white) 28%, rgba(255,255,255,0) 72%)`,
+          }}
+        />
+        <Image
+          src={choice.icon}
+          alt=""
+          aria-hidden
+          width={gummy}
+          height={gummy}
+          unoptimized
+          style={{
+            position: "relative",
+            width: gummy,
+            height: gummy,
+            objectFit: "contain",
+            filter: "drop-shadow(0 4px 8px rgba(40,28,64,0.32))",
+          }}
+        />
+      </div>
+    );
+  }
   return (
     <div style={{ position: "relative", display: "inline-grid", placeItems: "center" }}>
       <AnswerChoiceImage choice={choice} size={size} />
