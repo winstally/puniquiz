@@ -166,6 +166,7 @@ export type GameSnapshot = {
   correct_key: string | null; // only set once the current round is revealed
   answer_reveal_at?: string | null; // ISO; when the answer should appear (client gate)
   correct_count?: number; // authoritative correct-answer count (reveal only); 0 otherwise
+  max_points?: number; // current quiz's maximum possible total score
   my_answer: MyAnswer | null;
   vote: VoteEvent | null;
   roster: RosterEntry[];

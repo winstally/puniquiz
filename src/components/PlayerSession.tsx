@@ -225,6 +225,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       scoreboard={showScoreboard}
       rank={rank}
       points={points}
+      maxPoints={game.maxPoints}
       totalPlayers={totalPlayers}
     />
 

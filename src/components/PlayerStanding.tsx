@@ -90,12 +90,14 @@ export function PlayerStanding({
   nickname,
   rank,
   points,
+  maxPoints = 0,
   totalPlayers,
   final,
 }: {
   nickname?: string | null;
   rank: number | null;
   points: number;
+  maxPoints?: number;
   totalPlayers: number;
   /** Final results (confetti + closing copy) vs the between-rounds interstitial. */
   final: boolean;
@@ -153,6 +155,11 @@ export function PlayerStanding({
         <b style={{ color: "var(--plum)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums", fontSize: 16 }}>
           {points}
         </b>{" "}
+        {maxPoints > 0 ? (
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>
+            / {maxPoints}
+          </span>
+        ) : null}{" "}
         {POINTS_UNIT}
       </p>
 

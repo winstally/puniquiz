@@ -82,6 +82,8 @@ export type UseGameState = {
   answersOpenAt: string | null;
   /** Whole seconds until answers open (0 once open). */
   secondsUntilAnswers: number;
+  /** Milliseconds until answers open (0 once open). */
+  msUntilAnswers: number;
   /** Sub-phase of a live question: countdown → reading → answering (null otherwise). */
   roundPhase: RoundPhase;
   /** 3-2-1 number during the countdown sub-phase (0 otherwise). */
@@ -110,6 +112,8 @@ export type UseGameState = {
   hasNext: boolean;
   /** The current quiz is the curated demo (server truth — survives reload/share). */
   isDemo: boolean;
+  /** Current quiz's maximum possible total score. */
+  maxPoints: number;
   /** Underlying channel (for usePresence track / host broadcasts). */
   channel: RealtimeChannel | null;
   /** Coarse channel connection status. */
@@ -188,12 +192,16 @@ function scheduleCorrectReveal(
 export const COUNTDOWN_S = 3;
 export type RoundPhase = "await" | "countdown" | "answering" | null;
 
-function secondsUntil(deadlineIso: string | null, offsetMs: number): number {
+function msUntil(deadlineIso: string | null, offsetMs: number): number {
   if (!deadlineIso) return 0;
   const deadline = new Date(deadlineIso).getTime();
   if (Number.isNaN(deadline)) return 0;
   const serverNow = Date.now() + offsetMs;
-  return Math.max(0, Math.ceil((deadline - serverNow) / 1000));
+  return Math.max(0, deadline - serverNow);
+}
+
+function secondsUntil(deadlineIso: string | null, offsetMs: number): number {
+  return Math.ceil(msUntil(deadlineIso, offsetMs) / 1000);
 }
 
 type GameViewState = {
@@ -214,6 +222,7 @@ type GameViewState = {
   registrationLocked: boolean;
   hasNext: boolean;
   isDemo: boolean;
+  maxPoints: number;
   offset: number;
 };
 
@@ -247,6 +256,7 @@ const initialGameView: GameViewState = {
   registrationLocked: false,
   hasNext: false,
   isDemo: false,
+  maxPoints: 0,
   offset: 0,
 };
 
@@ -270,6 +280,7 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         registrationLocked: snap.registration_locked ?? false,
         hasNext: snap.has_next ?? false,
         isDemo: snap.is_demo ?? false,
+        maxPoints: snap.max_points ?? view.maxPoints,
         offset: computeOffset(snap.server_now),
         hydrated: true,
         notFound: false,
@@ -543,7 +554,8 @@ export function useGameState(gameId: string): UseGameState {
   // new value as wall-clock time advances.
   void tick;
   const secondsLeft = secondsUntil(view.deadline, view.offset);
-  const secondsUntilAnswers = secondsUntil(view.answersOpenAt, view.offset);
+  const msUntilAnswers = msUntil(view.answersOpenAt, view.offset);
+  const secondsUntilAnswers = Math.ceil(msUntilAnswers / 1000);
   let roundPhase: RoundPhase = null;
   let countdownNumber = 0;
   if (view.state === "question_open") {
@@ -567,6 +579,7 @@ export function useGameState(gameId: string): UseGameState {
     secondsLeft,
     answersOpenAt: view.answersOpenAt,
     secondsUntilAnswers,
+    msUntilAnswers,
     roundPhase,
     countdownNumber,
     counts: view.counts,
@@ -582,6 +595,7 @@ export function useGameState(gameId: string): UseGameState {
     registrationLocked: view.registrationLocked,
     hasNext: view.hasNext,
     isDemo: view.isDemo,
+    maxPoints: view.maxPoints,
     channel,
     channelStatus: status,
     subscribed: status === "subscribed",

@@ -32,17 +32,30 @@ function drumrollSyncPlan(revealMs: number): { delayMs: number; rate: number } {
   return { delayMs: 0, rate: clampPlaybackRate(DRUMROLL_HIT_MS / revealMs) };
 }
 
+function seekableSeconds(audio: HTMLAudioElement, elapsedMs: number): number {
+  const elapsedSeconds = Math.max(0, elapsedMs / 1000);
+  if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
+    return elapsedSeconds;
+  }
+  return Math.min(elapsedSeconds, Math.max(0, audio.duration - 0.05));
+}
+
 // HostSounds — big-screen audio for the host (shared speakers, Kahoot-style):
+//   • plays the "3, 2, 1, go" cue when answers are about to open
 //   • loops the "thinking" track while answers are open
 //   • plays the drumroll the instant the answer is revealed (the 溜め)
 //   • keeps the audio's "じゃん!" hit aligned with the server-gated answer reveal.
 // Renders nothing.
 export function HostSounds({
+  countdownCueKey,
+  countdownElapsedMs = 0,
   answering,
   revealed,
   onDrumrollEnd,
   revealMs,
 }: {
+  countdownCueKey?: string | null;
+  countdownElapsedMs?: number;
   answering: boolean;
   revealed: boolean;
   /** Called once when the drumroll finishes (legacy; reveal is now server-timed). */
@@ -52,8 +65,10 @@ export function HostSounds({
    *  audio file's true length. */
   revealMs?: number;
 }) {
+  const countdownRef = useRef<HTMLAudioElement | null>(null);
   const thinkingRef = useRef<HTMLAudioElement | null>(null);
   const drumrollRef = useRef<HTMLAudioElement | null>(null);
+  const lastCountdownCueRef = useRef<string | null>(null);
   // Keep the latest callback without re-running the reveal effect on each render.
   const onEndRef = useRef(onDrumrollEnd);
   useEffect(() => {
@@ -62,6 +77,10 @@ export function HostSounds({
 
   // Create the audio elements once (client only).
   useEffect(() => {
+    const countdown = new Audio("/sfx/321go.mp3");
+    countdown.volume = 0.75;
+    countdown.preload = "auto";
+    countdown.load();
     const thinking = new Audio("/sfx/thinking.mp3");
     thinking.loop = true;
     thinking.volume = 0.45;
@@ -70,15 +89,29 @@ export function HostSounds({
     drumroll.volume = 0.75;
     drumroll.preload = "auto";
     drumroll.load();
+    countdownRef.current = countdown;
     thinkingRef.current = thinking;
     drumrollRef.current = drumroll;
     return () => {
+      countdown.pause();
       thinking.pause();
       drumroll.pause();
+      countdownRef.current = null;
       thinkingRef.current = null;
       drumrollRef.current = null;
     };
   }, []);
+
+  // Play once when the host opens the 3-2-1 lead before answers unlock.
+  useEffect(() => {
+    if (!countdownCueKey) return;
+    if (lastCountdownCueRef.current === countdownCueKey) return;
+    lastCountdownCueRef.current = countdownCueKey;
+    const a = countdownRef.current;
+    if (!a) return;
+    a.currentTime = seekableSeconds(a, countdownElapsedMs);
+    void a.play().catch(() => {});
+  }, [countdownCueKey, countdownElapsedMs]);
 
   // Loop the thinking track only while answers are open.
   useEffect(() => {

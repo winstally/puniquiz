@@ -144,6 +144,8 @@ export function PhoneScreen({
   rank = null,
   /** This player's total points. */
   points = 0,
+  /** Current quiz's maximum possible total score. */
+  maxPoints = 0,
   /** Number of ranked players (for "X人中 Y位" context). */
   totalPlayers = 0,
   roundPhase = null,
@@ -170,6 +172,7 @@ export function PhoneScreen({
   scoreboard?: boolean;
   rank?: number | null;
   points?: number;
+  maxPoints?: number;
   totalPlayers?: number;
   /** Live-question sub-phase (countdown → reading → answering), null otherwise. */
   roundPhase?: RoundPhase;
@@ -219,6 +222,7 @@ export function PhoneScreen({
           nickname={finalNickname}
           rank={rank}
           points={points}
+          maxPoints={maxPoints}
           totalPlayers={totalPlayers}
         />
       </PhoneFrame>
@@ -235,6 +239,7 @@ export function PhoneScreen({
           final={false}
           rank={rank}
           points={points}
+          maxPoints={maxPoints}
           totalPlayers={totalPlayers}
         />
       </PhoneFrame>

@@ -85,7 +85,7 @@ function podiumRankStyle(theme: PlaceTheme) {
 
 const leaderTableHeadStyle = {
   display: "grid",
-  gridTemplateColumns: "44px 1fr 64px 96px",
+  gridTemplateColumns: "44px 1fr 64px 118px",
   gap: 8,
   padding: "0 18px 8px",
   fontFamily: "var(--font-display)",
@@ -97,7 +97,7 @@ const leaderTableHeadStyle = {
 
 const leaderTableRowStyle = {
   display: "grid",
-  gridTemplateColumns: "44px 1fr 64px 96px",
+  gridTemplateColumns: "44px 1fr 64px 118px",
   alignItems: "center",
   gap: 8,
   background: "#fff",
@@ -174,9 +174,11 @@ export function TrophyIcon({ color, size = 22 }: { color: string; size?: number 
 export function Leaderboard({
   leaderboard,
   final,
+  maxPoints = 0,
 }: {
   leaderboard: LeaderboardEntry[];
   final: boolean;
+  maxPoints?: number;
 }) {
   const reduce = useReducedMotion();
   const ranks = computeRanks(leaderboard);
@@ -261,6 +263,7 @@ export function Leaderboard({
                   key={entry.player_id}
                   rank={ranks[idx]}
                   entry={entry}
+                  maxPoints={maxPoints}
                   reduce={Boolean(reduce)}
                   delay={ranks[idx] === 1 ? 0.32 : 0.1 + i * 0.06}
                 />
@@ -268,7 +271,7 @@ export function Leaderboard({
             })}
           </div>
 
-          {rest.length > 0 ? <LeaderTable rest={rest} ranks={restRanks} /> : null}
+          {rest.length > 0 ? <LeaderTable rest={rest} ranks={restRanks} maxPoints={maxPoints} /> : null}
         </>
       )}
     </div>
@@ -280,11 +283,13 @@ export function Leaderboard({
 function PodiumSlot({
   rank,
   entry,
+  maxPoints,
   reduce,
   delay,
 }: {
   rank: number;
   entry: LeaderboardEntry;
+  maxPoints: number;
   reduce: boolean;
   delay: number;
 }) {
@@ -342,6 +347,11 @@ function PodiumSlot({
           <b style={{ color: "var(--plum)", fontFamily: "var(--font-display)", fontVariantNumeric: "tabular-nums", fontSize: 16 }}>
             {entry.total_points.toLocaleString()}
           </b>{" "}
+          {maxPoints > 0 ? (
+            <span style={{ color: "var(--ink-soft)", fontVariantNumeric: "tabular-nums" }}>
+              / {maxPoints.toLocaleString()}
+            </span>
+          ) : null}{" "}
           {POINTS_UNIT}
         </span>
         {/* Rank — the headline (matches the player's big "N位"), so the standing
@@ -360,7 +370,7 @@ function PodiumSlot({
 }
 
 // Ranks 4th+ as a clean ranking table (順位 / プレイヤー / 正解 / pt).
-function LeaderTable({ rest, ranks }: { rest: LeaderboardEntry[]; ranks: number[] }) {
+function LeaderTable({ rest, ranks, maxPoints }: { rest: LeaderboardEntry[]; ranks: number[]; maxPoints: number }) {
   return (
     <div style={{ maxWidth: 640, margin: "26px auto 0" }}>
       <div style={leaderTableHeadStyle}>
@@ -407,6 +417,11 @@ function LeaderTable({ rest, ranks }: { rest: LeaderboardEntry[]; ranks: number[
               }}
             >
               {entry.total_points.toLocaleString()}
+              {maxPoints > 0 ? (
+                <span style={{ color: "var(--ink-soft)", fontSize: 12 }}>
+                  {" "}/ {maxPoints.toLocaleString()}
+                </span>
+              ) : null}
             </span>
           </li>
         ))}

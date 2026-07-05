@@ -32,7 +32,7 @@ import { createGameAction } from "@/app/actions";
 import { hydrateChoices } from "@/lib/quiz";
 import { pageShell } from "@/lib/layout";
 import { DRUMROLL_MS } from "@/lib/reveal-timing";
-import { useGameState } from "@/lib/realtime/useGameState";
+import { COUNTDOWN_S, useGameState } from "@/lib/realtime/useGameState";
 import { usePresence, type PresenceMeta } from "@/lib/realtime/usePresence";
 import { useHostController } from "@/lib/realtime/useHostController";
 import type { RosterAvatar } from "@/components/HostScreen";
@@ -93,6 +93,11 @@ export function HostController({
   const drumrolling = revealed && correctId < 0;
   const totalSeconds = game.question?.time_limit_seconds ?? undefined;
   const eyebrow = `Q${position + 1}`;
+  const countdownCueKey = game.roundPhase === "countdown" ? game.answersOpenAt : null;
+  const countdownElapsedMs =
+    game.roundPhase === "countdown"
+      ? Math.max(0, COUNTDOWN_S * 1000 - game.msUntilAnswers)
+      : 0;
 
   // Presence roster → HostScreen avatar chips + authoritative connected count.
   const roster: RosterAvatar[] = presence.roster.map((p) => ({
@@ -172,6 +177,8 @@ export function HostController({
           reveal is now driven by the server's answer_reveal_at (client timer), so
           the drumroll is decorative — rate-synced to land exactly on the reveal. */}
       <HostSounds
+        countdownCueKey={countdownCueKey}
+        countdownElapsedMs={countdownElapsedMs}
         answering={game.roundPhase === "answering"}
         revealed={revealed}
         revealMs={DRUMROLL_MS}
@@ -188,9 +195,9 @@ export function HostController({
       ) : state === "lobby" ? (
         <LobbyView pin={displayPin} />
       ) : state === "ended" ? (
-        <Leaderboard leaderboard={game.leaderboard} final />
+        <Leaderboard leaderboard={game.leaderboard} final maxPoints={game.maxPoints} />
       ) : state === "scoreboard" ? (
-        <Leaderboard leaderboard={game.leaderboard} final={false} />
+        <Leaderboard leaderboard={game.leaderboard} final={false} maxPoints={game.maxPoints} />
       ) : drumrolling ? (
         <HostRevealSuspense />
       ) : (

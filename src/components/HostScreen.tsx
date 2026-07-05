@@ -148,7 +148,7 @@ function boardPanelStyle(demo: boolean, tall: boolean, isAwait: boolean) {
 function hostMediaStyle(demo: boolean) {
   return {
     width: "100%",
-    maxWidth: demo ? 460 : 520,
+    maxWidth: demo ? 460 : "min(72vw, 760px)",
     // Fixed 16:10 frame (SSOT) everywhere — the whole image always shows (contain),
     // so nothing is cropped on the editor, host screen, or the landing demo.
     aspectRatio: QUESTION_IMAGE_ASPECT,
@@ -191,7 +191,7 @@ function revealPanelStyle(demo: boolean) {
 function revealMediaStyle(demo: boolean) {
   return {
     width: "100%",
-    maxWidth: demo ? 360 : 420,
+    maxWidth: demo ? 360 : "min(64vw, 620px)",
     aspectRatio: QUESTION_IMAGE_ASPECT,
     position: "relative",
     borderRadius: 16,
@@ -280,7 +280,7 @@ function QuestionMedia({
       src={src}
       alt=""
       fill
-      sizes={demo ? (reveal ? "360px" : "460px") : (reveal ? "420px" : "520px")}
+      sizes={demo ? (reveal ? "360px" : "460px") : (reveal ? "64vw" : "72vw")}
       unoptimized
       onError={() => setFailedSrc(src)}
       style={imageStyle}
