@@ -233,7 +233,7 @@ export function AnswerChoicePhoto({
   choice: ChoiceVisual;
   size?: number;
 }) {
-  const gummy = Math.round(size * 0.42);
+  const badgeSize = Math.round(size * 0.42);
   if (!choice.image_url) {
     return (
       <div style={{ position: "relative", display: "inline-grid", placeItems: "center", width: size, height: size, marginTop: 8 }}>
@@ -245,15 +245,15 @@ export function AnswerChoicePhoto({
           src={choice.icon}
           alt=""
           aria-hidden
-          width={gummy}
-          height={gummy}
+          width={size}
+          height={size}
           unoptimized
           style={{
             position: "relative",
-            width: gummy,
-            height: gummy,
+            width: size,
+            height: size,
             objectFit: "contain",
-            filter: "drop-shadow(0 4px 8px rgba(40,28,64,0.32))",
+            filter: "drop-shadow(0 10px 16px rgba(0,0,0,0.16))",
           }}
         />
       </div>
@@ -266,15 +266,15 @@ export function AnswerChoicePhoto({
         src={choice.icon}
         alt=""
         aria-hidden
-        width={gummy}
-        height={gummy}
+        width={badgeSize}
+        height={badgeSize}
         unoptimized
         style={{
           position: "absolute",
           left: -Math.round(size * 0.06),
           top: -Math.round(size * 0.04),
-          width: gummy,
-          height: gummy,
+          width: badgeSize,
+          height: badgeSize,
           objectFit: "contain",
           filter: "drop-shadow(0 4px 8px rgba(40,28,64,0.32))",
         }}
