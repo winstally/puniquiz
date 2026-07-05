@@ -96,11 +96,11 @@ async function main() {
     await choices.nth(3).fill("緑");
     await page.getByRole("button", { name: "答え1を正解にする" }).click();
 
-    log("stage-jpeg-image");
+    log("stage-webp-image");
     const fileChooserPromise = page.waitForEvent("filechooser");
     await page.getByText("画像を追加").click();
     const chooser = await fileChooserPromise;
-    await chooser.setFiles(path.resolve("public/demo/caramel.jpg"));
+    await chooser.setFiles(path.resolve("public/desserts/tiramisu.webp"));
     await screenshot(page, "03-image-staged");
 
     log("save-quiz-with-upload");

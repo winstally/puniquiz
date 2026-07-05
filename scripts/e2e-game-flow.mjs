@@ -179,9 +179,22 @@ async function main() {
       await screenshot(p2.page, `${String(round).padStart(2, "0")}-player2-answered`);
 
       log("reveal-round", { round });
+      const revealClickedAt = Date.now();
       await clickByName(host, "正解発表");
-      await expect(host.getByText("正解は…？")).toBeVisible({ timeout: 20_000 });
-      await expect(p1.page.getByText("正解は…？")).toBeVisible({ timeout: 20_000 });
+      const [hostPromptAt, playerPromptAt] = await Promise.all([
+        host.getByText("正解は…？").waitFor({ state: "visible", timeout: 20_000 }).then(() => Date.now()),
+        p1.page.getByText("正解は…？").waitFor({ state: "visible", timeout: 20_000 }).then(() => Date.now()),
+      ]);
+      const hostPromptDelay = hostPromptAt - revealClickedAt;
+      const playerPromptDelay = playerPromptAt - revealClickedAt;
+      const promptSkew = hostPromptDelay - playerPromptDelay;
+      log("reveal-prompt-timing", { round, hostPromptDelay, playerPromptDelay, promptSkew });
+      if (hostPromptDelay > 1200) {
+        throw new Error(`Host reveal prompt was delayed: ${hostPromptDelay}ms`);
+      }
+      if (promptSkew > 700) {
+        throw new Error(`Host reveal prompt lagged the player by ${promptSkew}ms`);
+      }
       await screenshot(host, `${String(round).padStart(2, "0")}-host-drumroll`);
 
       await expect(p1.page.getByText("正解！")).toBeVisible({ timeout: 12_000 });
