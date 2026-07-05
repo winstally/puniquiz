@@ -291,6 +291,15 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         next.correctCount = 0;
         next.counts = {};
         next.total = 0;
+        next.leaderboard = [];
+      }
+      if (p.state === "lobby") {
+        next.question = null;
+        next.correctKey = undefined;
+        next.correctCount = 0;
+        next.counts = {};
+        next.total = 0;
+        next.leaderboard = [];
       }
       return next;
     }
