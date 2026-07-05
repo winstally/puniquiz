@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import Image from "next/image";
 import { ImagePlus } from "lucide-react";
 import { glowHaloStyle } from "@/components/glow-halo";
@@ -40,6 +40,42 @@ function AnswerChoiceBadge({
       />
     </span>
   );
+}
+
+function dessertFallbackImageUrl(label: string): string | null {
+  const normalized = label.trim().toLowerCase();
+  if (normalized.includes("ティラミス") || normalized.includes("tiramisu")) {
+    return "/desserts/tiramisu.webp";
+  }
+  if (normalized.includes("プリン") || normalized.includes("pudding")) {
+    return "/desserts/pudding.webp";
+  }
+  if (
+    normalized.includes("ロールケーキ") ||
+    normalized.includes("ショートケーキ") ||
+    normalized.includes("shortcake")
+  ) {
+    return "/desserts/shortcake.webp";
+  }
+  if (normalized.includes("パンケーキ") || normalized.includes("pancake")) {
+    return "/desserts/pancake.webp";
+  }
+  return null;
+}
+
+function choiceImageCandidates({
+  icon,
+  imageUrl,
+  label,
+}: {
+  icon: string;
+  imageUrl?: string | null;
+  label: string;
+}): string[] {
+  const urls = [imageUrl, dessertFallbackImageUrl(label)]
+    .filter((url): url is string => Boolean(url));
+  if (urls.length > 0) urls.push(icon);
+  return [...new Set(urls)];
 }
 
 export function AnswerChoiceCard({
@@ -195,7 +231,19 @@ function AnswerChoiceImage({
   choice: ChoiceVisual;
   size?: number;
 }) {
-  if (!choice.image_url) return null;
+  const candidates = useMemo(
+    () => choiceImageCandidates({
+      icon: choice.icon,
+      imageUrl: choice.image_url,
+      label: choice.label,
+    }),
+    [choice.icon, choice.image_url, choice.label],
+  );
+  const candidatesKey = candidates.join("\n");
+  const [failedCandidate, setFailedCandidate] = useState({ key: candidatesKey, index: 0 });
+  const candidateIndex = failedCandidate.key === candidatesKey ? failedCandidate.index : 0;
+  const src = candidates[candidateIndex] ?? null;
+  if (!src) return null;
   return (
     <div style={{ position: "relative", display: "grid", placeItems: "center", marginTop: 8 }}>
       <span
@@ -204,11 +252,21 @@ function AnswerChoiceImage({
       />
       <span style={{ position: "relative", filter: "drop-shadow(0 5px 8px rgba(0,0,0,0.14))" }}>
         <Image
-          src={choice.image_url}
+          src={src}
           alt=""
           width={size}
           height={size}
           unoptimized
+          onError={() => {
+            setFailedCandidate((current) => {
+              const currentIndex = current.key === candidatesKey ? current.index : 0;
+              const next = currentIndex + 1;
+              return {
+                key: candidatesKey,
+                index: next < candidates.length ? next : currentIndex,
+              };
+            });
+          }}
           style={{
             width: size,
             height: size,
