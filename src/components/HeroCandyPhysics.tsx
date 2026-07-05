@@ -13,6 +13,7 @@ import type Matter from "matter-js";
 // pointer events. Skipped under prefers-reduced-motion.
 const ANSWERS = ["/answers/0.webp", "/answers/1.webp", "/answers/2.webp", "/answers/3.webp"];
 const NAT = 256; // answer PNGs are 256×256
+const texturePreload = new Map<string, Promise<void>>();
 
 type CandySpec = {
   texture: string;
@@ -38,6 +39,19 @@ function candyDeck(total: number): CandySpec[] {
   return shuffle(deck.slice(0, total));
 }
 
+function preloadTexture(src: string): Promise<void> {
+  const cached = texturePreload.get(src);
+  if (cached) return cached;
+  const load = new Promise<void>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = src;
+  });
+  texturePreload.set(src, load);
+  return load;
+}
+
 export function HeroCandyPhysics() {
   const hostRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
@@ -58,6 +72,7 @@ export function HeroCandyPhysics() {
     let dropTimer: number | undefined;
     let detachMotion: (() => void) | null = null;
     let cancelled = false;
+    let setupPending = false;
 
     const G = 1.6;
     const RATIO = Math.min(window.devicePixelRatio || 1, 2);
@@ -168,10 +183,14 @@ export function HeroCandyPhysics() {
     };
 
     const setup = async (width: number, height: number) => {
+      if (setupPending || engine) return;
+      setupPending = true;
       const [{ default: Matter }, { attachMotionGravity }] = await Promise.all([
         import("matter-js"),
         import("@/lib/motion-gravity"),
       ]);
+      await Promise.all(ANSWERS.map(preloadTexture));
+      setupPending = false;
       if (cancelled || !host.isConnected) return;
 
       const { Engine, Render, Runner, Bodies, Composite, Body, Events, Sleeping } = Matter;
@@ -275,7 +294,7 @@ export function HeroCandyPhysics() {
       const width = host.clientWidth;
       const height = host.clientHeight;
       if (width === 0 || height === 0) return;
-      if (!engine) {
+      if (!engine && !setupPending) {
         lastW = width;
         lastH = height;
         void setup(width, height);
