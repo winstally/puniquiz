@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { DRUMROLL_HIT_MS, DRUMROLL_SOURCE_MS } from "@/lib/reveal-timing";
+import { DRUMROLL_HIT_MS, DRUMROLL_SOURCE_MS, drumrollStartDelayMs } from "@/lib/reveal-timing";
 
 function clampPlaybackRate(rate: number): number {
   return Math.min(2.5, Math.max(0.5, rate));
@@ -27,7 +27,7 @@ function setPlaybackRate(audio: HTMLAudioElement, rate: number): void {
 
 function drumrollSyncPlan(revealMs: number): { delayMs: number; rate: number } {
   if (revealMs >= DRUMROLL_HIT_MS) {
-    return { delayMs: revealMs - DRUMROLL_HIT_MS, rate: 1 };
+    return { delayMs: drumrollStartDelayMs(revealMs), rate: 1 };
   }
   return { delayMs: 0, rate: clampPlaybackRate(DRUMROLL_HIT_MS / revealMs) };
 }

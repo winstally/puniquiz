@@ -24,10 +24,14 @@ const variantStyle = {
 
 export function RevealSuspense({
   variant = "host",
+  promptDelayMs = 0,
 }: {
   variant?: RevealSuspenseVariant;
+  promptDelayMs?: number;
 }) {
   const style = variantStyle[variant];
+  const delay = promptDelayMs / 1000;
+
   return (
     <m.div
       initial={{ opacity: 0 }}
@@ -42,8 +46,12 @@ export function RevealSuspense({
       }}
     >
       <m.div
-        animate={{ scale: [1, style.pulse, 1] }}
-        transition={{ duration: style.duration, repeat: Infinity, ease: "easeInOut" }}
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: [1, style.pulse, 1] }}
+        transition={{
+          opacity: { duration: 0.12, delay },
+          scale: { duration: style.duration, repeat: Infinity, ease: "easeInOut", delay },
+        }}
         style={{
           fontFamily: "var(--font-display)",
           fontWeight: 700,

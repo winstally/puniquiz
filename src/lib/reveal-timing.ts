@@ -9,3 +9,7 @@ export const DRUMROLL_STUCK_RECOVERY_GRACE_MS = 1500;
 // ~2.54s (20ms RMS peak analysis), so the answer should appear there.
 export const DRUMROLL_SOURCE_MS = 4519.184;
 export const DRUMROLL_HIT_MS = 2540;
+
+export function drumrollStartDelayMs(revealMs: number): number {
+  return Math.max(0, revealMs - DRUMROLL_HIT_MS);
+}
