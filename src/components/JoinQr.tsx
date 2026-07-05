@@ -11,7 +11,7 @@
 // only: origin is read via useSyncExternalStore (null on the server / first
 // paint → calm placeholder) without any setState-in-effect.
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import QRCode from "qrcode";
 import { JoinCodeDisplay, LobbyCard } from "@/components/LobbyUi";
 
@@ -52,7 +52,7 @@ export function JoinQr({ pin, size = 220 }: { pin: string | null; size?: number 
   const url = pin && origin ? `${origin}/?join=${encodeURIComponent(pin)}` : null;
 
   // Matrix is a pure function of the url — compute (sync) and memoize.
-  const qr = useMemo(() => {
+  const qr = (() => {
     if (!url) return null;
     try {
       return QRCode.create(url, { errorCorrectionLevel: "H" });
@@ -60,10 +60,10 @@ export function JoinQr({ pin, size = 220 }: { pin: string | null; size?: number 
       console.warn("[JoinQr] create failed", err);
       return null;
     }
-  }, [url]);
+  })();
 
   // Square data modules (skip finder regions — drawn separately, rounded).
-  const tiles = useMemo(() => {
+  const tiles = (() => {
     if (!qr) return null;
     const n = qr.modules.size;
     const out: React.ReactNode[] = [];
@@ -76,7 +76,7 @@ export function JoinQr({ pin, size = 220 }: { pin: string | null; size?: number 
       }
     }
     return out;
-  }, [qr]);
+  })();
 
   const n = qr?.modules.size ?? 0;
   const dim = n + MARGIN * 2;
@@ -131,7 +131,7 @@ export function JoinQr({ pin, size = 220 }: { pin: string | null; size?: number 
             style={{
               fontFamily: "var(--font-display)",
               fontWeight: 700,
-              fontSize: 11,
+          fontSize: 12,
               letterSpacing: 3,
               color: "var(--ink-soft)",
             }}

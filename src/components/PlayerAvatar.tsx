@@ -27,6 +27,37 @@ export type PlayerAvatarProps = {
   className?: string;
 };
 
+function playerAvatarStyle({
+  bg,
+  size,
+  box,
+  font,
+  display,
+  stacked,
+  ring,
+}: {
+  bg: string;
+  size: PlayerAvatarSize;
+  box: number;
+  font: number;
+  display: boolean;
+  stacked?: boolean;
+  ring?: boolean;
+}) {
+  return {
+    ...avatarGlossStyle(bg, size, { stacked, ring }),
+    width: box,
+    height: box,
+    minWidth: box,
+    minHeight: box,
+    flex: "0 0 auto",
+    flexShrink: 0,
+    fontSize: font,
+    fontWeight: 700,
+    fontFamily: display ? "var(--font-display)" : undefined,
+  } as const;
+}
+
 /** Single visual SSOT for player initials avatars (glossy jelly circle). */
 export function PlayerAvatar({
   nickname = "",
@@ -47,18 +78,7 @@ export function PlayerAvatar({
     <span
       aria-hidden
       className={cn(className)}
-      style={{
-        ...avatarGlossStyle(bg, size, { stacked, ring }),
-        width: box,
-        height: box,
-        minWidth: box,
-        minHeight: box,
-        flex: "0 0 auto",
-        flexShrink: 0,
-        fontSize: font,
-        fontWeight: 700,
-        fontFamily: display ? "var(--font-display)" : undefined,
-      }}
+      style={playerAvatarStyle({ bg, size, box, font, display, stacked, ring })}
     >
       {letter}
     </span>

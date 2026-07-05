@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useReducedMotion } from "motion/react";
 import Matter from "matter-js";
+import { attachMotionGravity } from "@/lib/motion-gravity";
 
 // AnswerRain — a modest physics shower of the correct answer's glossy button
 // candy. On reveal a couple dozen copies drop from the top and pile up a little
@@ -16,18 +17,30 @@ import Matter from "matter-js";
 // Resize is handled in place (Render.setSize + moving the walls) — the existing
 // pile is kept, NOT re-dropped, so changing the window width doesn't replay the
 // whole animation. Skipped entirely under prefers-reduced-motion.
-export function AnswerRain({ src, count }: { src: string; count?: number }) {
+export function AnswerRain({
+  srcs,
+  count,
+  delay = 0,
+}: {
+  /** One or two candy icons to rain. With two, they alternate so the colours mix. */
+  srcs: string[];
+  count?: number;
+  /** Lead (ms) before the first candy drops — lets a static panel read first. */
+  delay?: number;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
+  const srcsKey = srcs.join(",");
 
   useEffect(() => {
     if (reduce) return;
+    const textures = srcsKey.split(",").filter(Boolean);
+    if (textures.length === 0) return;
     const host = hostRef.current;
     if (!host) return;
 
     const { Engine, Render, Runner, Bodies, Composite, Body, Events, Sleeping } = Matter;
     const G = 1.6; // gravity magnitude
-    const RAD = Math.PI / 180;
     const RATIO = Math.min(window.devicePixelRatio || 1, 2);
 
     let engine: Matter.Engine | null = null;
@@ -39,13 +52,13 @@ export function AnswerRain({ src, count }: { src: string; count?: number }) {
     let rightWall: Matter.Body | null = null;
     let obstacle: Matter.Body | null = null;
     let cardRo: ResizeObserver | null = null;
+    let dropStartTimer: number | undefined;
     let dropTimer: number | undefined;
+    let detachMotion: (() => void) | null = null;
 
     // Gyro target gravity (smoothed toward each frame).
     let targetX = 0;
     let targetY = G;
-    let lastBeta = 90;
-    let lastGamma = 0;
 
     const wakeAll = () => {
       if (!engine) return;
@@ -59,21 +72,6 @@ export function AnswerRain({ src, count }: { src: string; count?: number }) {
       if (!engine) return;
       engine.gravity.x += (targetX - engine.gravity.x) * 0.12;
       engine.gravity.y += (targetY - engine.gravity.y) * 0.12;
-    };
-
-    const onOrient = (e: DeviceOrientationEvent) => {
-      if (e.beta == null && e.gamma == null) return;
-      const beta = Math.max(0, Math.min(180, e.beta ?? 90));
-      const gamma = Math.max(-90, Math.min(90, e.gamma ?? 0));
-      targetX = G * Math.sin(gamma * RAD);
-      targetY = G * Math.sin(beta * RAD);
-      // Settled candies sleep — wake the pile when the tilt actually changes so
-      // it can slosh toward the new gravity (then it re-settles and sleeps again).
-      if (Math.abs(gamma - lastGamma) > 1.5 || Math.abs(beta - lastBeta) > 1.5) {
-        lastGamma = gamma;
-        lastBeta = beta;
-        wakeAll();
-      }
     };
 
     // The answer card is a solid obstacle so the big candies bonk onto it / perch
@@ -141,46 +139,60 @@ export function AnswerRain({ src, count }: { src: string; count?: number }) {
       }
 
       const NAT = 256; // source image natural size (square)
-      const BASE = 108; // a few BIG candies
+      const BASE = 58; // small candies (a 2-colour shower that mixes)
 
-      // Just a few big candies dropping in — not a fill.
-      const total = count ?? 4;
+      // A modest shower so the two colours visibly intermix at the bottom.
+      const total = count ?? 14;
 
       Render.run(render);
       runner = Runner.create();
       Runner.run(runner, engine);
 
-      // Drop them one at a time with a stagger so each big candy is its own beat.
+      // Drop a couple per tick, alternating the colours so they mix — after an
+      // optional lead so a static panel (your pick / correct) reads first.
       let dropped = 0;
-      dropTimer = window.setInterval(() => {
+      const tick = () => {
         if (dropped >= total) {
           window.clearInterval(dropTimer);
           return;
         }
-        dropped++;
-        const size = BASE * (0.85 + Math.random() * 0.3); // slight size variety
-        const scale = size / NAT;
-        const x = width * (0.12 + Math.random() * 0.76); // spread across the width
-        // The candy is a rounded SQUARE (~0.74·size), not a circle — so use a
-        // chamfered rectangle body. Circles nestle into each other's gaps and read
-        // as overlapping; matching squares pack flush, no overlap, no float.
-        const side = size * 0.74;
-        const body = Bodies.rectangle(x, -size - Math.random() * 80, side, side, {
-          chamfer: { radius: side * 0.3 }, // rounded corners like the candy
-          restitution: 0.25,
-          friction: 0.1,
-          frictionStatic: 0.2,
-          frictionAir: 0.01,
-          sleepThreshold: 22,
-          render: { sprite: { texture: src, xScale: scale, yScale: scale } },
-        });
-        Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.2);
-        Body.setVelocity(body, { x: (Math.random() - 0.5) * 1.5, y: 0 });
-        Composite.add(engine!.world, body);
-      }, 180);
+        for (let k = 0; k < 2 && dropped < total; k++) {
+          const texture = textures[dropped % textures.length]; // alternate → mix
+          dropped += 1;
+          const size = BASE * (0.82 + Math.random() * 0.36); // slight size variety
+          const scale = size / NAT;
+          const x = width * (0.1 + Math.random() * 0.8); // spread across the width
+          // The candy is a rounded SQUARE (~0.74·size) — chamfered rectangle body
+          // so candies pack flush (no overlap/float), unlike circles.
+          const side = size * 0.74;
+          const body = Bodies.rectangle(x, -size - Math.random() * 90, side, side, {
+            chamfer: { radius: side * 0.3 },
+            restitution: 0.28,
+            friction: 0.1,
+            frictionStatic: 0.2,
+            frictionAir: 0.01,
+            sleepThreshold: 22,
+            render: { sprite: { texture, xScale: scale, yScale: scale } },
+          });
+          Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.25);
+          Body.setVelocity(body, { x: (Math.random() - 0.5) * 1.6, y: 0 });
+          Composite.add(engine!.world, body);
+        }
+      };
+      dropStartTimer = window.setTimeout(() => {
+        refreshObstacle(); // re-measure: the card swapped from 溜め → answer
+        dropTimer = window.setInterval(tick, 70);
+      }, delay);
 
       Events.on(engine, "beforeUpdate", onTick);
-      window.addEventListener("deviceorientation", onOrient);
+      detachMotion = attachMotionGravity({
+        gravity: G,
+        onChange: (x, y) => {
+          targetX = x;
+          targetY = y;
+        },
+        onWake: wakeAll,
+      });
     };
 
     const resize = (width: number, height: number) => {
@@ -216,25 +228,12 @@ export function AnswerRain({ src, count }: { src: string; count?: number }) {
     const ro = new ResizeObserver(sync);
     ro.observe(host);
 
-    // iOS 13+ gates motion/orientation behind a permission prompt that must be
-    // triggered from a user gesture — request it on the first tap. Android and
-    // desktop have no such gate.
-    type PermDOE = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<string> };
-    const DOE = window.DeviceOrientationEvent as PermDOE | undefined;
-    let askPerm: (() => void) | null = null;
-    if (DOE && typeof DOE.requestPermission === "function") {
-      askPerm = () => {
-        DOE.requestPermission?.().catch(() => {});
-      };
-      window.addEventListener("pointerdown", askPerm, { once: true });
-    }
-
     return () => {
       ro.disconnect();
       cardRo?.disconnect();
+      window.clearTimeout(dropStartTimer);
       window.clearInterval(dropTimer);
-      window.removeEventListener("deviceorientation", onOrient);
-      if (askPerm) window.removeEventListener("pointerdown", askPerm);
+      detachMotion?.();
       if (engine) Events.off(engine, "beforeUpdate", onTick);
       if (render) Render.stop(render);
       if (runner) Runner.stop(runner);
@@ -245,7 +244,7 @@ export function AnswerRain({ src, count }: { src: string; count?: number }) {
       if (render) render.textures = {};
       canvas?.remove();
     };
-  }, [reduce, src, count]);
+  }, [reduce, srcsKey, count, delay]);
 
   return (
     <div

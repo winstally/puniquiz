@@ -1,10 +1,8 @@
-// Plain (non-"use server") helpers + types for the login-free edit-link model.
+// Plain (non-"use server") helpers + types for invite-gated quiz authoring.
 //
-// The authoring model has NO login: each quiz carries a secret per-quiz
-// `edit_token` (a uuid). Knowing the edit-link — `/admin/quizzes/{quizId}?t={token}`
-// — IS the capability to edit (Google-Docs "anyone with the link"). All reads/
-// writes go through SECURITY DEFINER RPCs that validate the token; the editor is
-// the ONLY place correct_key is ever surfaced (via get_quiz_for_edit).
+// The admin invite cookie gates the UI, while Supabase auth.uid() ownership gates
+// the database RPCs. The editor is the only UI path that receives correct_key
+// (via get_quiz_for_edit).
 //
 // Kept out of any "use server" module so it can export plain (sync) functions
 // and types. The generated Database type may not yet include the new RPCs, so we
@@ -21,18 +19,12 @@ import {
   keyForIndex,
 } from "./quiz-form";
 
-// The caveat shown on EVERY edit surface. Anyone with the link can edit, so we
-// must warn against entering secrets. Single source of truth so the copy stays
-// identical across /admin and the editor.
-export const EDIT_LINK_CAVEAT =
-  "⚠️ このリンクを知っている人は誰でも編集できます。パスワードなどの機密情報は入力しないでください。";
-
 // ---------------------------------------------------------------------------
 // RPC wire shapes (declared locally; generated Database type lags the migration)
 // ---------------------------------------------------------------------------
 
-// create_quiz(p_title, p_description) RETURNS TABLE(quiz_id, edit_token)
-export type CreateQuizRow = { quiz_id: string; edit_token: string };
+// create_quiz(p_title, p_description) RETURNS TABLE(quiz_id)
+export type CreateQuizRow = { quiz_id: string };
 
 // One question as returned by get_quiz_for_edit / sent to save_quiz. This is the
 // ONLY shape that carries correct_key on the read side.
@@ -42,67 +34,23 @@ export type EditQuestion = {
   text: string;
   choices: { key: string; label: string; image_url?: string | null }[];
   correct_key: string;
-  time_limit_seconds: number;
+  time_limit_seconds: number | null;
   points_base: number;
   media_url?: string | null;
 };
 
-// get_quiz_for_edit(p_quiz_id, p_edit_token) RETURNS jsonb
+// get_quiz_for_edit(p_quiz_id) RETURNS jsonb
 export type QuizForEdit = {
   id: string;
   title: string;
   description: string | null;
   is_published: boolean;
-  edit_token: string;
   questions: EditQuestion[];
 };
 
-// ---------------------------------------------------------------------------
-// Edit-link parsing — accept either a full URL or a bare token, and pull out the
-// quizId + token so the /admin "既存のリンクを開く" field is forgiving.
-// ---------------------------------------------------------------------------
-export type ParsedEditLink = { quizId: string; token: string };
-
-const UUID_RE =
-  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-
-// Parse a pasted edit-link. Handles:
-//   - a full URL: https://host/admin/quizzes/<quizId>?t=<token>
-//   - a relative path: /admin/quizzes/<quizId>?t=<token>
-//   - just the "<quizId>?t=<token>" tail
-// Returns null when a quizId + token pair can't be recovered.
-export function parseEditLink(input: string): ParsedEditLink | null {
-  const raw = input.trim();
-  if (raw.length === 0) return null;
-
-  // Try to interpret as a URL (absolute or relative against a dummy base).
-  let pathname = raw;
-  let token = "";
-  try {
-    const url = new URL(raw, "https://x.invalid");
-    pathname = url.pathname;
-    token = url.searchParams.get("t") ?? "";
-  } catch {
-    // Not URL-shaped; fall through to manual splitting below.
-    const qIndex = raw.indexOf("?");
-    if (qIndex >= 0) {
-      pathname = raw.slice(0, qIndex);
-      const query = new URLSearchParams(raw.slice(qIndex + 1));
-      token = query.get("t") ?? "";
-    }
-  }
-
-  // quizId = the last uuid found in the path (….../admin/quizzes/<quizId>).
-  const pathMatches = pathname.match(UUID_RE);
-  const quizId = pathMatches ? pathMatches[0] : "";
-
-  if (!UUID_RE.test(quizId) || !UUID_RE.test(token)) return null;
-  return { quizId, token };
-}
-
-// Build the canonical edit-link path for a quiz (used for the share link/copy).
-export function editLinkPath(quizId: string, token: string): string {
-  return `/admin/quizzes/${quizId}?t=${token}`;
+// Build the canonical admin editor path for a quiz.
+export function editLinkPath(quizId: string): string {
+  return `/admin/quizzes/${quizId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +80,9 @@ export function quizForEditToDraft(quiz: QuizForEdit): DraftQuiz {
         : "";
       return {
         text: q.text,
-        time_limit_seconds: q.time_limit_seconds || DEFAULT_TIME_LIMIT,
+        // null = 手動 (manual). Preserve it; only fall back to the default when
+        // the field is genuinely missing (undefined), not when it's null.
+        time_limit_seconds: q.time_limit_seconds === undefined ? DEFAULT_TIME_LIMIT : q.time_limit_seconds,
         points_base: q.points_base || DEFAULT_POINTS_BASE,
         choices,
         correct_key,

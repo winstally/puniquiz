@@ -76,4 +76,4 @@ function Status({
   )
 }
 
-export { Status, statusDotVariants }
+export { Status }

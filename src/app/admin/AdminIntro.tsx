@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence } from "motion/react";
@@ -9,20 +9,31 @@ import { Pencil, Play, Plus } from "lucide-react";
 import { PuniButton, PuniIcon } from "@/components/PuniButton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { puniButtonStyle } from "@/lib/puni-button";
-import { editLinkPath } from "@/lib/admin/edit-link";
+import { editLinkPath } from "@/lib/admin/quiz-authoring";
 import { rememberQuiz, useRecentQuizzes } from "@/lib/admin/recent-quizzes";
-import { createQuizAction, startGameForQuizAction } from "@/app/actions";
-import { cardStyle } from "./admin-ui";
+import { createQuizAction, startDemoGameAction, startGameForQuizAction } from "@/app/actions";
+import { cardStyle } from "./admin-styles";
+
+const recentQuizTitleStyle = {
+  flex: 1,
+  minWidth: 0,
+  fontWeight: 700,
+  fontSize: 15,
+  color: "var(--ink)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+} as const;
 
 // AdminIntro — the invite-gated /admin landing island.
 //
 // Two paths:
-//   1) "新しいクイズを作る" → create_quiz RPC → push to the new edit-link.
+//   1) "新しいクイズを作る" → create_quiz RPC → push to the editor.
 //   2) Reopen a locally remembered quiz, then edit or host it.
 //
 // The page route checks the invite cookie before rendering this island. Mutating
 // actions also re-check that cookie server-side.
-export function AdminIntro() {
+export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean }) {
   const router = useRouter();
   const recents = useRecentQuizzes();
   const [creating, startCreate] = useTransition();
@@ -30,6 +41,23 @@ export function AdminIntro() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   // Quiz awaiting the start confirmation.
   const [startChoiceId, setStartChoiceId] = useState<string | null>(null);
+
+  // Landing "デモを試す" routes here as /admin?demo=1 so it passes the invite gate
+  // like every other host path; once allowed in, auto-start the curated demo.
+  const demoStartedRef = useRef(false);
+  useEffect(() => {
+    if (demoStartedRef.current) return;
+    if (!autoStartDemo) return;
+    demoStartedRef.current = true;
+    startHost(async () => {
+      const res = await startDemoGameAction();
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      router.push(res.redirect);
+    });
+  }, [autoStartDemo, router, startHost]);
 
   // Tapping ゲーム開始 asks for confirmation first (a stray tap shouldn't kick off
   // a game). Whether to warm up with the demo is decided later, ON the lobby
@@ -63,10 +91,10 @@ export function AdminIntro() {
         return;
       }
       // Remember it locally so it appears in "編集を続ける" / the host launcher.
+      // Untitled until the user names it in the editor; the list shows a fallback.
       rememberQuiz({
         quizId: res.quizId,
-        token: res.editToken,
-        title: "新しいクイズ",
+        title: "",
       });
       router.push(res.redirect);
     });
@@ -116,22 +144,11 @@ export function AdminIntro() {
                   borderTop: i === 0 ? "none" : "1px solid var(--line)",
                 }}
               >
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    fontWeight: 700,
-                    fontSize: 15,
-                    color: "var(--ink)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {q.title}
+                <span style={{ ...recentQuizTitleStyle, color: q.title.trim() ? "var(--ink)" : "var(--ink-soft)" }}>
+                  {q.title.trim() || "無題のクイズ"}
                 </span>
                 <Link
-                  href={editLinkPath(q.quizId, q.token)}
+                  href={editLinkPath(q.quizId)}
                   style={{
                     ...puniButtonStyle({ variant: "ghost", size: "sm", wide: true }),
                     textDecoration: "none",
@@ -157,7 +174,7 @@ export function AdminIntro() {
             ))}
           </div>
           <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13 }}>
-            別の端末で編集する場合は、編集リンクを開いてください。
+            管理招待を通したブラウザだけが編集できます。
           </p>
         </div>
       ) : null}

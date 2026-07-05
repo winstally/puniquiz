@@ -1,17 +1,23 @@
-import { createClient } from "@/lib/supabase/client";
+import { uploadQuizMediaAction } from "@/app/actions";
+import {
+  formatBytes,
+  QUIZ_MEDIA_ALLOWED_INPUT_TYPES,
+  QUIZ_MEDIA_MAX_BYTES,
+  QUIZ_MEDIA_MAX_EDGE,
+  QUIZ_MEDIA_OUTPUT_EXTENSION,
+  QUIZ_MEDIA_OUTPUT_TYPE,
+  QUIZ_MEDIA_WEBP_QUALITY,
+} from "@/lib/admin/media-policy";
 
 // Client-side image normalization before upload: downscale to a sane max edge
 // and re-encode to WebP. Quiz art only needs to look good on a big host screen +
 // a phone, so 1600px / q0.82 cuts file size dramatically while staying crisp.
-const MAX_EDGE = 1600;
-const WEBP_QUALITY = 0.82;
+const ALLOWED_INPUT_TYPES = new Set<string>(QUIZ_MEDIA_ALLOWED_INPUT_TYPES);
 
 async function toWebp(file: File): Promise<File> {
-  // Animated GIFs would be flattened by canvas — keep them as-is.
-  if (file.type === "image/gif") return file;
   try {
     const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, QUIZ_MEDIA_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
     const w = Math.max(1, Math.round(bitmap.width * scale));
     const h = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement("canvas");
@@ -22,13 +28,11 @@ async function toWebp(file: File): Promise<File> {
     ctx.drawImage(bitmap, 0, 0, w, h);
     bitmap.close?.();
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/webp", WEBP_QUALITY),
+      canvas.toBlob(resolve, QUIZ_MEDIA_OUTPUT_TYPE, QUIZ_MEDIA_WEBP_QUALITY),
     );
     if (!blob || blob.size === 0) return file;
-    // Already-webp that didn't shrink? keep the original to avoid churn.
-    if (file.type === "image/webp" && blob.size >= file.size) return file;
-    const name = file.name.replace(/\.[^.]+$/, "") + ".webp";
-    return new File([blob], name, { type: "image/webp" });
+    const name = file.name.replace(/\.[^.]+$/, "") + QUIZ_MEDIA_OUTPUT_EXTENSION;
+    return new File([blob], name, { type: QUIZ_MEDIA_OUTPUT_TYPE });
   } catch {
     return file; // unsupported/decode failure → upload the original
   }
@@ -38,27 +42,30 @@ async function toWebp(file: File): Promise<File> {
 // Images are normalized to WebP first (see toWebp). Login-free: anon may write to
 // this bucket (see 0006_quiz_media.sql). A random object name avoids collisions.
 export async function uploadQuizMedia(file: File): Promise<string> {
-  const supabase = createClient();
+  const inputErr = validateImageFile(file);
+  if (inputErr) throw new Error(inputErr);
   const out = await toWebp(file);
-  const ext =
-    out.type === "image/webp"
-      ? "webp"
-      : (out.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
-  const path = `${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage
-    .from("quiz-media")
-    .upload(path, out, { cacheControl: "3600", upsert: false, contentType: out.type || undefined });
-  if (error) throw error;
-  return supabase.storage.from("quiz-media").getPublicUrl(path).data.publicUrl;
+  if (out.type !== QUIZ_MEDIA_OUTPUT_TYPE) {
+    throw new Error("画像をWebPに変換できませんでした。PNG・JPEG・WebPの画像を選んでください");
+  }
+  if (out.size > QUIZ_MEDIA_MAX_BYTES) {
+    throw new Error(`画像は圧縮後5MBまでです（圧縮後: ${formatBytes(out.size)}）`);
+  }
+  const formData = new FormData();
+  formData.set("file", out);
+  const res = await uploadQuizMediaAction(formData);
+  if (!res.ok) throw new Error(res.error);
+  return res.url;
 }
 
-// Accept only reasonable image files, capped at ~5MB (pre-compression). SVG is
-// rejected up front: it isn't in the bucket's allowed_mime_types (it could be
-// served inline as an XSS vector), so blocking it here gives a clear message
-// instead of an opaque storage error.
+// Accept only sources we can deterministically normalize to WebP.
 export function validateImageFile(file: File): string | null {
   if (!file.type.startsWith("image/")) return "画像ファイルを選んでください";
-  if (file.type === "image/svg+xml") return "SVGは利用できません。PNG・JPEG・WebPなどを選んでください";
-  if (file.size > 5 * 1024 * 1024) return "画像は5MBまでです";
+  if (!ALLOWED_INPUT_TYPES.has(file.type)) {
+    return "PNG・JPEG・WebPの画像を選んでください";
+  }
+  if (file.size > QUIZ_MEDIA_MAX_BYTES) {
+    return `画像は5MBまでです（選択した画像: ${formatBytes(file.size)}）`;
+  }
   return null;
 }

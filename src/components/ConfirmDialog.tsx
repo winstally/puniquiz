@@ -1,8 +1,21 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
 import { PuniButton } from "@/components/PuniButton";
+
+const extraButtonStyle: React.CSSProperties = {
+  marginTop: 14,
+  background: "none",
+  border: "none",
+  cursor: "pointer",
+  color: "var(--plum-deep)",
+  fontFamily: "var(--font-display)",
+  fontWeight: 700,
+  fontSize: 13.5,
+  textDecoration: "underline",
+  textUnderlineOffset: 3,
+};
 
 export function ConfirmDialog({
   title,
@@ -37,7 +50,7 @@ export function ConfirmDialog({
   }, [onCancel]);
 
   return (
-    <motion.div
+    <m.div
       role="presentation"
       onClick={onCancel}
       initial={reduce ? false : { opacity: 0 }}
@@ -54,7 +67,7 @@ export function ConfirmDialog({
         padding: 20,
       }}
     >
-      <motion.div
+      <m.div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
@@ -122,24 +135,13 @@ export function ConfirmDialog({
             type="button"
             onClick={extra.onClick}
             disabled={pending}
-            style={{
-              marginTop: 14,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--plum-deep)",
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 13.5,
-              textDecoration: "underline",
-              textUnderlineOffset: 3,
-            }}
+            style={extraButtonStyle}
           >
             {extra.label}
           </button>
         ) : null}
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 }
 

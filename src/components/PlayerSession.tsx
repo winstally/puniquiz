@@ -8,7 +8,7 @@
 //                           reveal, secondsLeft from the absolute deadline, the
 //                           game PIN, and correctKey (undefined until reveal).
 //   - usePlayerSession(gameId): anonymous session + this game's player row, plus
-//                           pick(choiceKey)=submit_answer with optimistic UI.
+//                           pick(choiceKey) with optimistic UI.
 //
 // It maps that state onto the existing <PhoneScreen/> via the plan's adapter:
 //   choices    = hydrateChoices(question.choices)          (theme re-hydrated)
@@ -21,7 +21,7 @@
 // If the visitor has no membership for this game (status "no_player"), it shows
 // a small join prompt linking to "/?join={pin}" instead of the board.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { hydrateChoices } from "@/lib/quiz";
@@ -32,9 +32,33 @@ import { PhoneScreen } from "@/components/PhoneScreen";
 import { PuniButton } from "@/components/PuniButton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 
+const messageCardStyle = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 16,
+  textAlign: "center",
+  padding: "48px 24px",
+  maxWidth: 340,
+  margin: "0 auto",
+} as const;
+
+const messageCardIconStyle = {
+  width: 64,
+  height: 64,
+  borderRadius: 22,
+  display: "grid",
+  placeItems: "center",
+  fontSize: 30,
+  transform: "rotate(-6deg)",
+  background: "color-mix(in srgb, var(--plum) 10%, white)",
+  boxShadow: "var(--shadow-soft)",
+} as const;
+
 export function PlayerSession({ gameId }: { gameId: string }) {
   const game = useGameState(gameId);
-  const session = usePlayerSession(gameId);
+  const answerScope = game.question ? `${game.position}:${game.question.text}` : null;
+  const session = usePlayerSession(gameId, answerScope);
   const router = useRouter();
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -52,7 +76,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
         nickname: session.player.nickname,
         avatar_color: session.player.avatar_color,
         avatar_initial: session.player.avatar_initial,
-        role: "player",
+        kind: "player",
       }
     : null;
   usePresence(game.channel, me, game.presence, game.subscribed);
@@ -65,10 +89,6 @@ export function PlayerSession({ gameId }: { gameId: string }) {
     !session.isMember &&
     session.status !== "anonymous_disabled" &&
     session.status !== "error";
-  useEffect(() => {
-    if (notMember) router.replace("/");
-  }, [notMember, router]);
-
   // True while the channel is connecting or has errored (reconnecting). Used to
   // surface a small, non-alarming "再接続中…" pill rather than blocking the UI.
   const connecting =
@@ -108,8 +128,15 @@ export function PlayerSession({ gameId }: { gameId: string }) {
     );
   }
 
-  // Non-member: render nothing while the redirect above navigates to the landing.
-  if (notMember) return null;
+  if (notMember) {
+    return (
+      <MessageCard
+        title="参加が必要です"
+        body="このゲームで遊ぶには、参加コードから入り直してください。"
+        action={{ label: "参加ページへ", onClick: () => router.push("/") }}
+      />
+    );
+  }
 
   // Hydrate the public {key,label} choices into render-ready Choice[] (color/
   // shape/art come from the static CHOICE_THEME — the single visual adapter).
@@ -186,6 +213,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       onPick={session.pick}
       roundPhase={game.roundPhase}
       countdownNumber={game.countdownNumber}
+      awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
       initial={initial}
       avatarColor={avatarColor}
@@ -232,30 +260,11 @@ function MessageCard({
     <div
       role="status"
       aria-live="polite"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 16,
-        textAlign: "center",
-        padding: "48px 24px",
-        maxWidth: 340,
-        margin: "0 auto",
-      }}
+      style={messageCardStyle}
     >
       <span
         aria-hidden
-        style={{
-          width: 64,
-          height: 64,
-          borderRadius: 22,
-          display: "grid",
-          placeItems: "center",
-          fontSize: 30,
-          transform: "rotate(-6deg)",
-          background: "color-mix(in srgb, var(--plum) 10%, white)",
-          boxShadow: "var(--shadow-soft)",
-        }}
+        style={messageCardIconStyle}
       >
         🍵
       </span>

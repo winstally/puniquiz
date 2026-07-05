@@ -69,6 +69,7 @@ export type Database = {
           host_id: string
           host_secret: string
           id: string
+          next_quiz_id: string | null
           phase_deadline: string | null
           phase_started_at: string | null
           pin: string
@@ -83,6 +84,7 @@ export type Database = {
           host_id: string
           host_secret?: string
           id?: string
+          next_quiz_id?: string | null
           phase_deadline?: string | null
           phase_started_at?: string | null
           pin: string
@@ -97,6 +99,7 @@ export type Database = {
           host_id?: string
           host_secret?: string
           id?: string
+          next_quiz_id?: string | null
           phase_deadline?: string | null
           phase_started_at?: string | null
           pin?: string
@@ -106,6 +109,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "games_next_quiz_id_fkey"
+            columns: ["next_quiz_id"]
+            isOneToOne: false
+            referencedRelation: "quizzes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "games_quiz_id_fkey"
             columns: ["quiz_id"]
@@ -166,11 +176,12 @@ export type Database = {
           created_at: string
           eyebrow: string | null
           id: string
+          media_url: string | null
           points_base: number
           position: number
           quiz_id: string
           text: string
-          time_limit_seconds: number
+          time_limit_seconds: number | null
         }
         Insert: {
           choices: Json
@@ -178,11 +189,12 @@ export type Database = {
           created_at?: string
           eyebrow?: string | null
           id?: string
+          media_url?: string | null
           points_base?: number
           position: number
           quiz_id: string
           text: string
-          time_limit_seconds?: number
+          time_limit_seconds?: number | null
         }
         Update: {
           choices?: Json
@@ -190,11 +202,12 @@ export type Database = {
           created_at?: string
           eyebrow?: string | null
           id?: string
+          media_url?: string | null
           points_base?: number
           position?: number
           quiz_id?: string
           text?: string
-          time_limit_seconds?: number
+          time_limit_seconds?: number | null
         }
         Relationships: [
           {
@@ -210,7 +223,6 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
-          edit_token: string
           id: string
           is_demo: boolean
           is_published: boolean
@@ -221,7 +233,6 @@ export type Database = {
         Insert: {
           created_at?: string
           description?: string | null
-          edit_token?: string
           id?: string
           is_demo?: boolean
           is_published?: boolean
@@ -232,7 +243,6 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string | null
-          edit_token?: string
           id?: string
           is_demo?: boolean
           is_published?: boolean
@@ -244,7 +254,10 @@ export type Database = {
       }
       rounds: {
         Row: {
-          deadline: string
+          answer_reveal_at: string | null
+          answer_revealed_at: string | null
+          answers_open_at: string | null
+          deadline: string | null
           game_id: string
           id: string
           opened_at: string
@@ -253,7 +266,10 @@ export type Database = {
           revealed_at: string | null
         }
         Insert: {
-          deadline: string
+          answer_reveal_at?: string | null
+          answer_revealed_at?: string | null
+          answers_open_at?: string | null
+          deadline?: string | null
           game_id: string
           id?: string
           opened_at?: string
@@ -262,7 +278,10 @@ export type Database = {
           revealed_at?: string | null
         }
         Update: {
-          deadline?: string
+          answer_reveal_at?: string | null
+          answer_revealed_at?: string | null
+          answers_open_at?: string | null
+          deadline?: string | null
           game_id?: string
           id?: string
           opened_at?: string
@@ -390,8 +409,13 @@ export type Database = {
         Returns: Json
       }
       _vote_payload: { Args: { p_round_id: string }; Returns: Json }
+      advance_quiz: {
+        Args: { p_game_id: string; p_host_secret: string }
+        Returns: undefined
+      }
+      cleanup_stale_games: { Args: never; Returns: undefined }
       create_game: {
-        Args: { p_quiz_id: string }
+        Args: { p_next_quiz_id?: string; p_quiz_id: string }
         Returns: {
           game_id: string
           host_secret: string
@@ -401,7 +425,6 @@ export type Database = {
       create_quiz: {
         Args: { p_description: string; p_title: string }
         Returns: {
-          edit_token: string
           quiz_id: string
         }[]
       }
@@ -410,15 +433,20 @@ export type Database = {
         Returns: undefined
       }
       get_game_snapshot: { Args: { p_game_id: string }; Returns: Json }
-      get_quiz_for_edit: {
-        Args: { p_edit_token: string; p_quiz_id: string }
-        Returns: Json
-      }
+      get_quiz_for_edit: { Args: { p_quiz_id: string }; Returns: Json }
       host_advance: {
         Args: { p_game_id: string; p_host_secret: string }
         Returns: undefined
       }
+      host_open_answers: {
+        Args: { p_game_id: string; p_host_secret: string }
+        Returns: undefined
+      }
       host_reset_to_lobby: {
+        Args: { p_game_id: string; p_host_secret: string }
+        Returns: undefined
+      }
+      host_start_demo: {
         Args: { p_game_id: string; p_host_secret: string }
         Returns: undefined
       }
@@ -441,6 +469,10 @@ export type Database = {
           state: string
         }[]
       }
+      reveal_answer: {
+        Args: { p_game_id: string; p_host_secret: string }
+        Returns: undefined
+      }
       reveal_round: {
         Args: { p_game_id: string; p_host_secret: string }
         Returns: undefined
@@ -448,7 +480,6 @@ export type Database = {
       save_quiz: {
         Args: {
           p_description: string
-          p_edit_token: string
           p_is_published: boolean
           p_questions: Json
           p_quiz_id: string
@@ -592,15 +623,7 @@ export type CompositeTypes<
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
-export const Constants = {
-  public: {
-    Enums: {},
-  },
-} as const
-
-// ---------------------------------------------------------------------------
-// Convenience row aliases (hand-added; re-add after each `gen types`).
-// ---------------------------------------------------------------------------
+// Convenience row aliases (hand-maintained; the generator does not emit these).
 export type PlayerRow = Tables<"players">;
 export type QuizRow = Tables<"quizzes">;
 export type QuestionRow = Tables<"questions">;

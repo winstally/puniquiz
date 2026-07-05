@@ -20,6 +20,7 @@ import {
   REALTIME_SUBSCRIBE_STATES,
   type RealtimeChannel,
 } from "@supabase/supabase-js";
+import { ensureRealtimeSessionAction } from "@/app/actions";
 import { createClient } from "@/lib/supabase/client";
 import { gameChannel } from "@/lib/realtime/events";
 
@@ -44,11 +45,27 @@ export type UseRealtimeChannel = {
 // Exponential backoff schedule (ms), capped. Index clamps at the last entry.
 const BACKOFF_MS = [500, 1000, 2000, 4000, 8000, 15000] as const;
 
+async function removeTopicChannels(
+  supabase: ReturnType<typeof createClient>,
+  topic: string,
+): Promise<void> {
+  const stale = supabase
+    .getChannels()
+    .filter((c) => c.topic === topic || c.topic === `realtime:${topic}`);
+
+  await Promise.all(
+    stale.map((channel) =>
+      supabase.removeChannel(channel).catch(() => {
+        // best-effort teardown
+      }),
+    ),
+  );
+}
+
 export function useRealtimeChannel(
   gameId: string | null | undefined,
   // Registers all `.on(...)` listeners on the channel; called once per (re)create
-  // BEFORE subscribe(). Must be stable (e.g. useCallback) so it never recreates
-  // the channel spuriously.
+  // BEFORE subscribe().
   bind?: (channel: RealtimeChannel) => void,
 ): UseRealtimeChannel {
   const [status, setStatus] = useState<ChannelStatus>("idle");
@@ -58,6 +75,11 @@ export function useRealtimeChannel(
   // state so consumers re-render when it first appears.
   const channelRef = useRef<RealtimeChannel | null>(null);
   const [channel, setChannel] = useState<RealtimeChannel | null>(null);
+  const bindRef = useRef(bind);
+
+  useEffect(() => {
+    bindRef.current = bind;
+  });
 
   useEffect(() => {
     // No game → nothing to connect. We intentionally do NOT setState here
@@ -120,97 +142,94 @@ export function useRealtimeChannel(
       clearRetry();
       setStatus("connecting");
 
-      try {
-        // Clean slate: remove ANY channel already registered for this topic (a
-        // prior instance, or a leftover from a double-invoked effect) so the
-        // channel we bind + subscribe below is always freshly created and unjoined
-        // — otherwise `supabase.channel(topic)` collisions make bind() run on an
-        // already-joined channel ("cannot add presence after subscribe()").
-        channelRef.current = null;
-        for (const c of supabase.getChannels()) {
-          if (c.topic === topic || c.topic === `realtime:${topic}`) {
-            try {
-              await supabase.removeChannel(c);
-            } catch {
-              // best-effort teardown
-            }
-          }
-        }
-        if (disposed) return;
-
-        // Realtime Authorization needs the access token attached before subscribe.
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (disposed) return;
-        await supabase.realtime.setAuth(session?.access_token ?? null);
-        if (disposed) return;
-
-        const next = supabase.channel(topic, {
-          config: { private: true },
-        });
-        channelRef.current = next;
-        setChannel(next);
-
-        // Register all listeners (presence + broadcast) BEFORE subscribe() —
-        // Supabase rejects presence `.on()` added after subscribe().
-        bind?.(next);
-
-        next.subscribe((subStatus, err) => {
+      // Clean slate: remove ANY channel already registered for this topic (a
+      // prior instance, or a leftover from a double-invoked effect) so the
+      // channel we bind + subscribe below is always freshly created and unjoined
+      // — otherwise `supabase.channel(topic)` collisions make bind() run on an
+      // already-joined channel ("cannot add presence after subscribe()").
+      const connectPromise = removeTopicChannels(supabase, topic)
+        .then(async () => {
+          channelRef.current = null;
           if (disposed) return;
-          switch (subStatus) {
-            case REALTIME_SUBSCRIBE_STATES.SUBSCRIBED:
-              attempt = 0;
-              clearRetry();
-              setStatus("subscribed");
-              setReady(true);
-              // Signal "(re)connected" so consumers re-pull authoritative truth.
-              setReconnectNonce((n) => n + 1);
-              break;
-            case REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR:
-            case REALTIME_SUBSCRIBE_STATES.TIMED_OUT:
-              setStatus("error");
-              if (err) {
-                // Surface for debugging without throwing inside the callback.
-                console.warn(`[useRealtimeChannel] ${topic} ${subStatus}`, err);
-              }
-              scheduleRetry();
-              break;
-            case REALTIME_SUBSCRIBE_STATES.CLOSED:
-              setStatus("closed");
-              // Only auto-retry an unexpected close while still mounted.
-              if (!disposed) scheduleRetry();
-              break;
+
+          // Realtime Authorization needs the access token attached before subscribe.
+          const ensured = await ensureRealtimeSessionAction();
+          if (disposed) return;
+          if (!ensured.ok) throw new Error(ensured.error);
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (disposed) return;
+          await supabase.realtime.setAuth(session?.access_token ?? null);
+          if (disposed) return;
+
+          const next = supabase.channel(topic, {
+            config: { private: true },
+          });
+          channelRef.current = next;
+          setChannel(next);
+
+          // Register all listeners (presence + broadcast) BEFORE subscribe() —
+          // Supabase rejects presence `.on()` added after subscribe().
+          bindRef.current?.(next);
+
+          next.subscribe((subStatus, err) => {
+            if (disposed) return;
+            switch (subStatus) {
+              case REALTIME_SUBSCRIBE_STATES.SUBSCRIBED:
+                attempt = 0;
+                clearRetry();
+                setStatus("subscribed");
+                setReady(true);
+                // Signal "(re)connected" so consumers re-pull authoritative truth.
+                setReconnectNonce((n) => n + 1);
+                break;
+              case REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR:
+              case REALTIME_SUBSCRIBE_STATES.TIMED_OUT:
+                setStatus("error");
+                if (err) {
+                  // Surface for debugging without throwing inside the callback.
+                  console.warn(`[useRealtimeChannel] ${topic} ${subStatus}`, err);
+                }
+                scheduleRetry();
+                break;
+              case REALTIME_SUBSCRIBE_STATES.CLOSED:
+                setStatus("closed");
+                // Only auto-retry an unexpected close while still mounted.
+                if (!disposed) scheduleRetry();
+                break;
+            }
+          });
+        })
+        .catch((e: unknown) => {
+          // getSession / setAuth / channel setup threw. Don't let it escape as an
+          // unhandled rejection; log once and back off into a retry while mounted.
+          if (disposed) return;
+          console.warn(`[useRealtimeChannel] ${topic} connect failed`, e);
+          setStatus("error");
+          scheduleRetry();
+        })
+        .finally(() => {
+          connecting = false;
+          // A reconnect was requested while we were busy (e.g. token refresh) —
+          // run exactly one more pass now, with the latest auth.
+          if (pending && !disposed) {
+            pending = false;
+            void connect();
           }
         });
-      } catch (e) {
-        // getSession / setAuth / channel setup threw. Don't let it escape as an
-        // unhandled rejection; log once and back off into a retry while mounted.
-        if (disposed) return;
-        console.warn(`[useRealtimeChannel] ${topic} connect failed`, e);
-        setStatus("error");
-        scheduleRetry();
-      } finally {
-        connecting = false;
-        // A reconnect was requested while we were busy (e.g. token refresh) —
-        // run exactly one more pass now, with the latest auth.
-        if (pending && !disposed) {
-          pending = false;
-          void connect();
-        }
-      }
+
+      await connectPromise;
     };
 
-    // Re-auth realtime whenever the token rotates (refresh / sign-in). On a fresh
-    // sign-in we also re-subscribe so the private channel re-authorizes.
+    // Re-auth realtime whenever the token rotates. connect() already ensures a
+    // session and sets auth immediately before subscribe; re-subscribing on the
+    // SIGNED_IN event emitted by that same ensure call would recreate the channel
+    // and re-run the server action loop during startup.
     const { data: authSub } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_event, session) => {
         if (disposed) return;
         void safeSetAuth(session?.access_token ?? null);
-        if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-          attempt = 0;
-          void connect();
-        }
       },
     );
 
@@ -230,7 +249,7 @@ export function useRealtimeChannel(
         });
       }
     };
-  }, [gameId, bind]);
+  }, [gameId]);
 
   // When there is no game, present safe idle defaults without ever having to
   // setState from the effect (the effect simply no-ops for a falsy gameId).

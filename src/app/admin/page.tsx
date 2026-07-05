@@ -1,14 +1,19 @@
-import { redirect } from "next/navigation";
-import { AdminBrand, AdminInviteRequired, AdminShell } from "./admin-ui";
+import { AdminBrand } from "./AdminBrand";
+import { AdminInviteAccept } from "./AdminInviteAccept";
+import { AdminInviteRequired } from "./AdminInviteRequired";
+import { AdminShell } from "./AdminShell";
 import { AdminIntro } from "./AdminIntro";
 import { CONTENT_READABLE } from "@/lib/layout";
 import { hasAdminInviteAccess } from "@/lib/admin/invite-server";
-import { isAdminInviteConfigured } from "@/lib/admin/invite";
+import { isAdminInviteConfigured, isValidAdminInviteToken } from "@/lib/admin/invite";
+import { cleanAdminRedirectPath } from "@/lib/admin/redirect";
 
 type AdminPageProps = {
   searchParams: Promise<{
     invite?: string | string[];
     invite_error?: string | string[];
+    demo?: string | string[];
+    next?: string | string[];
   }>;
 };
 
@@ -20,11 +25,13 @@ function firstParam(value: string | string[] | undefined): string {
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const query = await searchParams;
   const invite = firstParam(query.invite).trim();
-  if (invite) {
-    redirect(`/admin/accept?invite=${encodeURIComponent(invite)}`);
-  }
+  const redirectTo = cleanAdminRedirectPath(firstParam(query.next));
 
   if (!(await hasAdminInviteAccess())) {
+    if (invite && isValidAdminInviteToken(invite)) {
+      return <AdminInviteAccept invite={invite} redirectTo={redirectTo} />;
+    }
+
     const reason = firstParam(query.invite_error);
     return (
       <AdminInviteRequired
@@ -67,11 +74,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             クイズスタジオ
           </h2>
           <p style={{ color: "var(--ink-soft)", fontSize: 14, margin: 0, lineHeight: 1.6 }}>
-            ぷにっと楽しいクイズ、作りましょ。
+            クイズを作成しましょう。
           </p>
         </section>
 
-        <AdminIntro />
+        <AdminIntro autoStartDemo={firstParam(query.demo) === "1"} />
       </div>
     </AdminShell>
   );

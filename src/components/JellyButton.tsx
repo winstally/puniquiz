@@ -1,129 +1,106 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "motion/react";
+import Image from "next/image";
 import type { Choice } from "@/lib/quiz";
 
-// JellyButton — the player's tap target. The IMAGE itself is the button: the
-// uploaded answer photo when present, otherwise the glossy jelly answer icon
-// (color + shape). No colored bar — the art is the button. Label sits below.
+function jellyButtonStyle(locked: boolean, dimmed: boolean) {
+  return {
+    position: "relative",
+    border: "none",
+    background: "transparent",
+    cursor: locked ? "default" : "pointer",
+    padding: "8px 6px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 8,
+    opacity: dimmed ? 0.4 : 1,
+    transition: "opacity .15s",
+  } as const;
+}
+
+function pickedBadgeStyle(deep: string) {
+  return {
+    position: "absolute",
+    top: 2,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    background: deep,
+    display: "grid",
+    placeItems: "center",
+    boxShadow: "0 3px 8px -2px rgba(0,0,0,0.3)",
+  } as const;
+}
+
+// JellyButton — the player's tap target, stripped down: just the glossy candy
+// (choice.icon, the /answers shape that maps to the host big screen) + the choice
+// title. No custom 3D button frame, no card background, no dessert photo, and no
+// answer-submitted animation. Picked → full, with a static check; others dim.
 export function JellyButton({
   choice,
-  index,
   picked,
   dimmed,
+  locked = false,
   onPick,
 }: {
   choice: Choice;
-  index: number;
+  /** Kept for caller compatibility (stagger is no longer animated). */
+  index?: number;
   picked: boolean;
   dimmed: boolean;
+  /** Once answered the choice is final (Kahoot-style) — lock all taps. */
+  locked?: boolean;
   onPick: (id: number) => void;
 }) {
-  const [tap, setTap] = useState(0);
-  const src = choice.image_url ?? choice.icon;
-  const isPhoto = Boolean(choice.image_url);
-
   return (
-    <motion.button
+    <button
       type="button"
       aria-label={choice.label}
       aria-pressed={picked}
-      onClick={() => {
-        setTap((t) => t + 1);
-        onPick(choice.id);
-      }}
-      initial={{ opacity: 0, y: 26, scale: 0.78 }}
-      animate={{
-        opacity: dimmed ? 0.42 : 1,
-        y: 0,
-        scale: picked ? 1.06 : dimmed ? 0.94 : 1,
-      }}
-      transition={{ type: "spring", stiffness: 360, damping: 13, delay: tap ? 0 : 0.07 * index }}
-      whileHover={dimmed ? undefined : { y: -4 }}
-      whileTap={{ scaleX: 1.1, scaleY: 0.86, y: 8 }}
-      style={{
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 8,
-        padding: 4,
-      }}
+      aria-disabled={locked}
+      onClick={locked ? undefined : () => onPick(choice.id)}
+      style={jellyButtonStyle(locked, dimmed)}
     >
-      <motion.span
-        key={tap}
-        className={tap ? "animate__animated animate__jello" : undefined}
-        style={{ position: "relative", display: "grid", placeItems: "center", width: "100%" }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt=""
-          style={
-            isPhoto
-              ? {
-                  width: "100%",
-                  aspectRatio: "1",
-                  maxWidth: 168,
-                  objectFit: "cover",
-                  borderRadius: 22,
-                  display: "block",
-                  boxShadow: picked
-                    ? `0 0 0 4px ${choice.color}, 0 12px 22px -10px rgba(0,0,0,0.3)`
-                    : "0 8px 16px -8px rgba(0,0,0,0.28)",
-                }
-              : {
-                  width: "100%",
-                  aspectRatio: "1",
-                  maxWidth: 156,
-                  objectFit: "contain",
-                  display: "block",
-                  filter: "drop-shadow(0 7px 11px rgba(0,0,0,0.2))",
-                }
-          }
-        />
-
-        {picked ? (
-          <motion.span
-            aria-hidden
-            initial={{ scale: 0, rotate: -30 }}
-            animate={{ scale: 1, rotate: 0 }}
-            transition={{ type: "spring", stiffness: 500, damping: 14 }}
-            style={{
-              position: "absolute",
-              top: isPhoto ? 8 : "12%",
-              right: isPhoto ? 8 : "12%",
-              width: 28,
-              height: 28,
-              borderRadius: "50%",
-              background: "#fff",
-              display: "grid",
-              placeItems: "center",
-              boxShadow: "0 3px 8px -2px rgba(0,0,0,0.3)",
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M3.5 8.5l2.8 2.8L12.5 5" stroke={choice.deep} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </motion.span>
-        ) : null}
-      </motion.span>
-
+      <Image
+        src={choice.icon}
+        alt=""
+        aria-hidden
+        width={176}
+        height={176}
+        unoptimized
+        style={{
+          width: "100%",
+          maxWidth: 176,
+          aspectRatio: "1 / 1",
+          objectFit: "contain",
+          display: "block",
+          filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.18))",
+        }}
+      />
       <span
         style={{
           fontFamily: "var(--font-display)",
           fontWeight: 700,
-          fontSize: 15,
-          color: "var(--ink)",
-          lineHeight: 1.2,
+          fontSize: 16,
+          lineHeight: 1.25,
           textAlign: "center",
+          color: "var(--ink)",
         }}
       >
         {choice.label}
       </span>
-    </motion.button>
+      {picked ? (
+        <span
+          aria-hidden
+          style={pickedBadgeStyle(choice.deep)}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+            <path d="M3.5 8.5l2.8 2.8L12.5 5" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      ) : null}
+    </button>
   );
 }

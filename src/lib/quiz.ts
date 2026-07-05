@@ -25,6 +25,16 @@ export type Question = {
 // countdown-ring ratio until it is fully prop-driven by time_limit_seconds.
 export const ROUND_SECONDS = 20;
 
+// Points unit label — the SINGLE source of truth for how a score's unit reads in
+// the UI (host badge, player +gain, leaderboard, standings). Keep it one string
+// so "pt" never drifts back into a mix of "pt" / "ポイント".
+export const POINTS_UNIT = "pt";
+
+// Question image frame aspect ratio — the SINGLE source of truth so every surface
+// (editor preview, host big screen, reveal) frames media identically. It shows the
+// whole image (object-fit: contain) so it's never cropped.
+export const QUESTION_IMAGE_ASPECT = "16 / 10";
+
 // CHOICE_THEME: the single static palette/shape table, indexed by choice
 // position. This is the one adapter point that keeps every visual component
 // (JellyButton / HostScreen / PlayerBoard) unchanged: the DB only stores

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 /** Shared icon sizing for leading icons on puni pill buttons. */
 export const PUNI_ICON = { sm: 15, md: 16, lg: 17 } as const;
 export const PUNI_ICON_STROKE = 2.4;
-export const PUNI_BUTTON_GAP = 8;
+export const PUNI_BUTTON_GAP = 12;
 
 export type PuniButtonSize = "sm" | "md" | "lg";
 export type PuniButtonTone = "default" | "plum" | "rose";

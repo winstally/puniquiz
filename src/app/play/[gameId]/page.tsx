@@ -17,7 +17,7 @@ export default function PlayPage({
   const { gameId } = use(params);
 
   return (
-    <main style={{ minHeight: "100dvh", width: "100%" }}>
+    <main style={{ minHeight: "100svh", width: "100%" }}>
       <style>{FOCUS_STYLE}</style>
       <PlayerSession gameId={gameId} />
     </main>

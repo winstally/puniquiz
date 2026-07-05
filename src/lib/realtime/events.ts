@@ -18,7 +18,7 @@ export type GameState =
 // Channel naming
 // -----------------------------------------------------------------------------
 // One private channel per game. Realtime Authorization gates it to members.
-export const GAME_CHANNEL_PREFIX = "game:" as const;
+const GAME_CHANNEL_PREFIX = "game:" as const;
 export function gameChannel(gameId: string): string {
   return `${GAME_CHANNEL_PREFIX}${gameId}`;
 }
@@ -63,6 +63,8 @@ export type QuestionEvent = {
   text: string;
   choices: PublicChoice[];
   time_limit_seconds: number;
+  /** This question's worth — full points for an instant correct answer. */
+  points_base: number;
   media_url?: string | null;
 };
 
@@ -72,13 +74,19 @@ export type VoteEvent = {
   total: number;
 };
 
-// `reveal` — the ONLY message that carries correct_key.
+// `reveal` — carries correct_key + the absolute moment the answer should appear
+// (answer_reveal_at). Clients hold the answer ("正解は…？") until then so the
+// drumroll lands in sync with no second RPC. server_now anchors the delay.
 export type RevealEvent = {
   correct_key: string;
   counts: VoteCounts;
   total: number;
   correct_count: number;
   leaderboard: LeaderboardEntry[];
+  /** ISO; when the answer should become visible (drumroll climax). */
+  answer_reveal_at?: string | null;
+  /** ISO; server clock at send, to compute the hold duration without offset. */
+  server_now?: string;
 };
 
 // `scoreboard` — leaderboard between questions / at game end.
@@ -140,6 +148,8 @@ export type SnapshotQuestion = {
   text: string;
   choices: PublicChoice[];
   time_limit_seconds: number;
+  /** This question's worth — full points for an instant correct answer. */
+  points_base: number;
   media_url?: string | null;
 };
 
@@ -151,8 +161,11 @@ export type GameSnapshot = {
   server_now: string; // ISO timestamptz; for clock-offset estimation
   registration_locked?: boolean; // host stopped new joins
   has_next?: boolean; // a next quiz is queued → after ending, can continue same game
+  is_demo?: boolean; // the current quiz is the curated demo (server truth)
   answers_open_at?: string | null; // ISO; choices unlock / answer timer start
   correct_key: string | null; // only set once the current round is revealed
+  answer_reveal_at?: string | null; // ISO; when the answer should appear (client gate)
+  correct_count?: number; // authoritative correct-answer count (reveal only); 0 otherwise
   my_answer: MyAnswer | null;
   vote: VoteEvent | null;
   roster: RosterEntry[];

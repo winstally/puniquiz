@@ -3,10 +3,10 @@
 // PuniDecor — the floating candy world. The same glossy answer buttons players
 // tap in-game (/answers/*.png) drift gently around the hero and the CTA band, so
 // the whole page feels like the inside of the app. Decorative + aria-hidden;
-// motion is disabled under prefers-reduced-motion.
+// motion is disabled under prefers-reduced-m.
 
 import Image from "next/image";
-import { motion, useReducedMotion } from "motion/react";
+import { m, useReducedMotion } from "motion/react";
 
 // The in-game answer-button art: 0 red△ / 1 blue◆ / 2 amber● / 3 green■.
 const ANSWERS = ["/answers/0.png", "/answers/1.png", "/answers/2.png", "/answers/3.png"];
@@ -22,7 +22,7 @@ type Floater = {
 function FloatingPiece({ src, size, delay, rotate, style }: Floater) {
   const reduce = useReducedMotion();
   return (
-    <motion.div
+    <m.div
       aria-hidden
       style={{ position: "absolute", pointerEvents: "none", ...style }}
       // `initial` must NOT depend on `reduce`: useReducedMotion() is false on the
@@ -40,7 +40,7 @@ function FloatingPiece({ src, size, delay, rotate, style }: Floater) {
         height={size}
         style={{ display: "block", filter: "drop-shadow(0 12px 16px rgba(60,40,110,0.22))" }}
       />
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -73,19 +73,32 @@ const PRESETS: Record<string, Floater[]> = {
   ],
 };
 
+function floaterKey(prefix: string, p: Floater): string {
+  return `${prefix}:${p.src}:${p.size}:${p.delay}:${p.rotate}`;
+}
+
+function renderFloatingPiece(prefix: string, p: Floater) {
+  return (
+    <FloatingPiece
+      key={floaterKey(prefix, p)}
+      src={p.src}
+      size={p.size}
+      delay={p.delay}
+      rotate={p.rotate}
+      style={p.style}
+    />
+  );
+}
+
 export function FloatingShapes({ variant }: { variant: "hero" | "cta" }) {
   if (variant === "hero") {
     return (
       <div aria-hidden className="floaters floaters-hero" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0 }}>
         <div className="floaters-wide">
-          {PRESETS.hero.map((p, i) => (
-            <FloatingPiece key={`w${i}`} {...p} />
-          ))}
+          {PRESETS.hero.map((p) => renderFloatingPiece("wide", p))}
         </div>
         <div className="floaters-narrow">
-          {PRESETS.heroNarrow.map((p, i) => (
-            <FloatingPiece key={`n${i}`} {...p} />
-          ))}
+          {PRESETS.heroNarrow.map((p) => renderFloatingPiece("narrow", p))}
         </div>
       </div>
     );
@@ -96,9 +109,7 @@ export function FloatingShapes({ variant }: { variant: "hero" | "cta" }) {
       className={`floaters floaters-${variant}`}
       style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 0 }}
     >
-      {PRESETS[variant].map((p, i) => (
-        <FloatingPiece key={i} {...p} />
-      ))}
+      {PRESETS[variant].map((p) => renderFloatingPiece(variant, p))}
     </div>
   );
 }

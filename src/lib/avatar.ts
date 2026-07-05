@@ -25,14 +25,32 @@ export function avatarColor(
 ): string {
   if (explicit) return explicit;
   if (!seed) return AVATAR_TINTS[0];
-  let h = 0;
-  for (const c of seed) h = (h + c.charCodeAt(0)) | 0;
-  return AVATAR_TINTS[Math.abs(h) % AVATAR_TINTS.length];
+  return AVATAR_TINTS[avatarSeedIndex(seed)];
 }
 
-/** Pick a tint for a new player row (join). */
-export function pickAvatarColor(seed: string): string {
-  return avatarColor(null, seed);
+function avatarSeedIndex(seed: string): number {
+  let h = 0;
+  for (const c of seed) h = (h + c.charCodeAt(0)) | 0;
+  return Math.abs(h) % AVATAR_TINTS.length;
+}
+
+/** Pick a tint for a new player row (join), preferring colors not already used in the room. */
+export function pickAvatarColor(seed: string, usedColors: readonly (string | null)[] = []): string {
+  if (usedColors.length === 0) return avatarColor(null, seed);
+
+  const counts = new Map<string, number>();
+  for (const tint of AVATAR_TINTS) counts.set(tint, 0);
+  for (const color of usedColors) {
+    if (color && counts.has(color)) counts.set(color, (counts.get(color) ?? 0) + 1);
+  }
+
+  const start = avatarSeedIndex(seed);
+  const ordered = AVATAR_TINTS.map((_, i) => AVATAR_TINTS[(start + i) % AVATAR_TINTS.length]);
+  return ordered.reduce((best, tint) => {
+    const bestCount = counts.get(best) ?? 0;
+    const tintCount = counts.get(tint) ?? 0;
+    return tintCount < bestCount ? tint : best;
+  }, ordered[0]);
 }
 
 /** Glossy jelly circle — the single visual treatment for all player avatars. */

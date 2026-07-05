@@ -2,20 +2,24 @@
 
 import { useEffect, useState } from "react";
 
-export type DemoPhase = "countdown" | "reading" | "answering" | "reveal";
+export type DemoPhase = "await" | "countdown" | "answering" | "reveal";
 
 // The demo round as a per-second timeline. One tick = one second; the loop walks
-// this list and wraps. `secs` is the number shown big during the 3-2-1 countdown
-// and inside the timer ring during the read/answer phases — so the ring actually
-// counts down for real. No setState in the effect body (only in the interval
-// callback) to stay clear of the cascading-render lint.
+// this list and wraps. It mirrors the real host-driven flow: the question is
+// parked (await) to be read, then a 3-2-1 ring before answers open, the answer
+// window, and the reveal. `secs` is the number shown inside the ring during the
+// countdown/answer phases — so the ring actually counts down for real. No
+// setState in the effect body (only in the interval callback) to stay clear of
+// the cascading-render lint.
 const TIMELINE: ReadonlyArray<{ phase: DemoPhase; secs: number }> = [
+  // The parked question (await) shows no answer area, so it's the sparsest frame —
+  // keep it to a short "read the question" beat before the 3-2-1, so the fixed
+  // footprint isn't sat on a mostly-empty board for long.
+  { phase: "await", secs: 0 },
+  { phase: "await", secs: 0 },
   { phase: "countdown", secs: 3 },
   { phase: "countdown", secs: 2 },
   { phase: "countdown", secs: 1 },
-  { phase: "reading", secs: 3 },
-  { phase: "reading", secs: 2 },
-  { phase: "reading", secs: 1 },
   { phase: "answering", secs: 5 },
   { phase: "answering", secs: 4 },
   { phase: "answering", secs: 3 },

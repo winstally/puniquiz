@@ -2,9 +2,10 @@
 
 // useHostController — thin, race-safe wrapper around the host RPCs.
 //
-// Authority lives entirely in the SECURITY DEFINER RPCs (host_advance /
-// reveal_round), which verify host_secret. This hook only:
-//  - calls them with the right args,
+// Authority lives in server actions + SECURITY DEFINER RPCs. The actions read
+// the httpOnly host cookie and pass the host_secret to the RPC; the client never
+// receives that bearer secret. This hook only:
+//  - calls the right action,
 //  - serializes calls behind a single `pending` flag so a double-click can't
 //    fire two advances (the server also guards via WHERE state=<expected>, but
 //    disabling the button is the first line of defense + better UX),
@@ -12,11 +13,21 @@
 //
 // start() and next() are both `host_advance` (the state machine decides what the
 // step means: lobby/scoreboard → open next question or → ended; question_open →
-// locked). reveal() is `reveal_round`.
+// locked; reveal → scoreboard). reveal() is `reveal_round`.
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
+import {
+  advanceQuizAction,
+  endGameAction,
+  hostAdvanceAction,
+  hostOpenAnswersAction,
+  hostStartDemoAction,
+  revealAnswerAction,
+  revealRoundAction,
+  setRegistrationLockAction,
+  type ActionResult,
+} from "@/app/actions";
 
 export type UseHostController = {
   /** True while any host RPC is in flight (disable the controls). */
@@ -25,12 +36,14 @@ export type UseHostController = {
   start: () => Promise<void>;
   /** Advance the state machine one step. */
   next: () => Promise<void>;
-  /** Compute scores + reveal the correct answer. */
+  /** From an open question (await), start the 3-2-1 countdown + answer window. */
+  openAnswers: () => Promise<void>;
+  /** Compute scores + enter the reveal (drumroll) — withholds the answer. */
   reveal: () => Promise<void>;
+  /** Release the correct answer when the drumroll lands (second reveal step). */
+  revealAnswer: () => Promise<void>;
   /** Toggle registration lock — stop / reopen new players joining. */
   setLock: (locked: boolean) => Promise<void>;
-  /** Abort an in-flight game back to the lobby (clears rounds/scores). */
-  resetToLobby: () => Promise<void>;
   /** From the lobby, warm up with the demo first (real quiz continues after). */
   startDemo: () => Promise<void>;
   /** After ending, continue the SAME game with the queued next quiz (→ lobby). */
@@ -39,9 +52,22 @@ export type UseHostController = {
   end: () => Promise<void>;
 };
 
+async function runHostRpc(
+  fn: () => Promise<ActionResult<object>>,
+  failMessage: string,
+): Promise<void> {
+  const result = await fn();
+  if (result.ok) return;
+  toast.error(failMessage, { description: result.error });
+}
+
+function describeError(error: unknown): string | undefined {
+  return error instanceof Error ? error.message : undefined;
+}
+
 export function useHostController(
   gameId: string,
-  hostSecret: string | null | undefined,
+  isHost: boolean,
 ): UseHostController {
   const [pending, setPending] = useState(false);
   // Synchronous re-entry guard: state updates are async, so a rapid second click
@@ -49,111 +75,73 @@ export function useHostController(
   const inFlight = useRef(false);
 
   const run = async (
-    // The RPC builders are thenable (PromiseLike) rather than true Promises.
-    fn: (
-      supabase: ReturnType<typeof createClient>,
-    ) => PromiseLike<{ error: unknown }>,
+    fn: () => Promise<ActionResult<object>>,
     failMessage: string,
   ) => {
     if (inFlight.current) return;
-    if (!gameId || !hostSecret) {
+    if (!gameId || !isHost) {
       toast.error("ホスト権限がありません");
       return;
     }
     inFlight.current = true;
     setPending(true);
-    try {
-      const supabase = createClient();
-      const { error } = await fn(supabase);
-      if (error) {
-        const message =
-          typeof error === "object" && error && "message" in error
-            ? String((error as { message: unknown }).message)
-            : failMessage;
-        toast.error(failMessage, { description: message });
-      }
-    } catch (e) {
-      toast.error(failMessage, {
-        description: e instanceof Error ? e.message : undefined,
+    return runHostRpc(fn, failMessage)
+      .catch((e: unknown) => {
+        toast.error(failMessage, { description: describeError(e) });
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setPending(false);
       });
-    } finally {
-      inFlight.current = false;
-      setPending(false);
-    }
   };
 
   const next = () =>
     run(
-      (supabase) =>
-        supabase.rpc("host_advance", {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-        }),
+      () => hostAdvanceAction(gameId),
       "進行できませんでした",
+    );
+
+  const openAnswers = () =>
+    run(
+      () => hostOpenAnswersAction(gameId),
+      "回答を開始できませんでした",
     );
 
   const reveal = () =>
     run(
-      (supabase) =>
-        supabase.rpc("reveal_round", {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-        }),
+      () => revealRoundAction(gameId),
       "正解発表できませんでした",
+    );
+
+  const revealAnswer = () =>
+    run(
+      () => revealAnswerAction(gameId),
+      "正解の表示に失敗しました",
     );
 
   const setLock = (locked: boolean) =>
     run(
-      (supabase) =>
-        supabase.rpc("set_registration_lock", {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-          p_locked: locked,
-        }),
+      () => setRegistrationLockAction(gameId, locked),
       locked ? "締め切れませんでした" : "再開できませんでした",
-    );
-
-  const resetToLobby = () =>
-    run(
-      (supabase) =>
-        supabase.rpc("host_reset_to_lobby", {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-        }),
-      "ロビーに戻せませんでした",
     );
 
   const startDemo = () =>
     run(
-      (supabase) =>
-        // host_start_demo is newer than the generated Database types; cast the call.
-        supabase.rpc("host_start_demo" as never, {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-        } as never),
+      () => hostStartDemoAction(gameId),
       "デモを開始できませんでした",
     );
 
   const advanceQuiz = () =>
     run(
-      (supabase) =>
-        // advance_quiz is newer than the generated Database types; cast the call.
-        supabase.rpc("advance_quiz" as never, {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-        } as never),
+      () => advanceQuizAction(gameId),
       "次のクイズに進めませんでした",
     );
 
   const end = () =>
     run(
-      (supabase) =>
-        supabase.rpc("end_game", {
-          p_game_id: gameId,
-          p_host_secret: hostSecret!,
-        }),
+      () => endGameAction(gameId),
       "ゲームを中止できませんでした",
     );
 
-  return { pending, start: next, next, reveal, setLock, resetToLobby, startDemo, advanceQuiz, end };
+  return { pending, start: next, next, openAnswers, reveal, revealAnswer, setLock, startDemo, advanceQuiz, end };
 }
