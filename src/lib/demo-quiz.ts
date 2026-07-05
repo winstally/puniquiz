@@ -63,10 +63,6 @@ export const DEMO_QUIZ_TEMPLATE = {
   ],
 } as const satisfies DemoQuizTemplate;
 
-export const QUIZ_TEMPLATES: Record<string, DemoQuizTemplate> = {
-  [DEFAULT_QUIZ_SLUG]: DEMO_QUIZ_TEMPLATE,
-};
-
 export function getDemoQuestionMedia(question: DemoQuizQuestion): string {
   return question.media_url;
 }
