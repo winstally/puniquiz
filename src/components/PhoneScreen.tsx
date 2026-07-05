@@ -121,6 +121,7 @@ export function PhoneScreen({
   revealed,
   onPick,
   nickname = "なお",
+  finalNickname = null,
   initial,
   avatarColor,
   pin,
@@ -154,6 +155,7 @@ export function PhoneScreen({
   // resolved here from JellyButton's numeric id.
   onPick: (key: string) => void;
   nickname?: string;
+  finalNickname?: string | null;
   initial?: string;
   avatarColor?: string | null;
   pin?: string;
@@ -210,6 +212,7 @@ export function PhoneScreen({
       <PhoneFrame {...headerProps}>
         <PlayerStanding
           final
+          nickname={finalNickname}
           rank={rank}
           points={points}
           totalPlayers={totalPlayers}

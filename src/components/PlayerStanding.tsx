@@ -87,11 +87,13 @@ async function runStandingConfetti({
 }
 
 export function PlayerStanding({
+  nickname,
   rank,
   points,
   totalPlayers,
   final,
 }: {
+  nickname?: string | null;
   rank: number | null;
   points: number;
   totalPlayers: number;
@@ -103,6 +105,9 @@ export function PlayerStanding({
   const place = rank !== null ? PLACE[rank] : undefined;
   const medal = place?.medal ?? "var(--plum)";
   const crown = place?.crown ?? "";
+  const finalHeading = nickname?.trim()
+    ? `おつかれさま、${nickname.trim()}さん`
+    : "おつかれさま";
 
   // Confetti once on mount — final podium only (the mid-round beat stays calm).
   const firedRef = useRef(false);
@@ -124,7 +129,7 @@ export function PlayerStanding({
       style={standingRootStyle}
     >
       <p style={{ margin: 0, color: "var(--ink)", fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 19, letterSpacing: "0.01em" }}>
-        {final ? "おつかれさま" : "現在のランキング"}
+        {final ? finalHeading : "現在のランキング"}
       </p>
 
       {crown ? (

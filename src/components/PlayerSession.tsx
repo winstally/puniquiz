@@ -215,6 +215,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       countdownNumber={game.countdownNumber}
       awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
+      finalNickname={session.nickname ?? null}
       initial={initial}
       avatarColor={avatarColor}
       pin={game.pin ?? undefined}
