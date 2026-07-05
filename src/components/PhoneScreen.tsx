@@ -17,6 +17,7 @@ import { AnswerRain } from "./AnswerRain";
 import { PlayerBoard } from "@/components/PlayerBoard";
 import { PlayerStanding } from "@/components/PlayerStanding";
 import { pageShell } from "@/lib/layout";
+import { PLAYER_HAPTICS, playHaptic } from "@/lib/haptics";
 import type { RoundPhase } from "@/lib/realtime/useGameState";
 
 const phoneContentLayerStyle = {
@@ -63,6 +64,26 @@ function phoneFrameStyle(tint: string | undefined) {
   } as const;
 }
 
+const HAPTIC_TARGET_SELECTOR = [
+  "button",
+  "a[href]",
+  "[role='button']",
+  "input[type='button']",
+  "input[type='submit']",
+].join(",");
+
+function shouldHapticForTarget(
+  target: EventTarget | null,
+  currentTarget: HTMLElement,
+): boolean {
+  if (!(target instanceof Element)) return false;
+  const interactive = target.closest<HTMLElement>(HAPTIC_TARGET_SELECTOR);
+  if (!interactive || !currentTarget.contains(interactive)) return false;
+  if (interactive.hasAttribute("disabled")) return false;
+  if (interactive.getAttribute("aria-disabled") === "true") return false;
+  return true;
+}
+
 // Player viewport — Brand + identity pill header; PIN lives in the lobby body only.
 function PhoneFrame({
   children,
@@ -74,6 +95,7 @@ function PhoneFrame({
   tint,
   rain,
   rainDelay,
+  hapticsEnabled = true,
 }: {
   children: React.ReactNode;
   nickname?: string | null;
@@ -90,12 +112,19 @@ function PhoneFrame({
   rain?: string[];
   /** Lead (ms) before the rain starts (lets the static panel read first). */
   rainDelay?: number;
+  /** Best-effort vibration feedback for play-side button taps. */
+  hapticsEnabled?: boolean;
 }) {
   const displayNickname = nickname?.trim() || null;
 
   return (
     <div
       style={phoneFrameStyle(tint)}
+      onPointerDownCapture={(event) => {
+        if (!hapticsEnabled) return;
+        if (!shouldHapticForTarget(event.target, event.currentTarget)) return;
+        playHaptic(PLAYER_HAPTICS.buttonTap);
+      }}
     >
       {/* Candy rain fills the WHOLE frame, in front of the content (reveal). */}
       {rain && rain.length ? <AnswerRain srcs={rain} delay={rainDelay} /> : null}
@@ -150,6 +179,9 @@ export function PhoneScreen({
   totalPlayers = 0,
   roundPhase = null,
   countdownNumber = 0,
+  revealCountdownNumber = 0,
+  revealCountdownTotal = 4,
+  hapticsEnabled = true,
   awardedPoints = null,
   onLeave,
 }: {
@@ -178,6 +210,11 @@ export function PhoneScreen({
   roundPhase?: RoundPhase;
   /** 3-2-1 number during the countdown sub-phase. */
   countdownNumber?: number;
+  /** Remaining seconds while "正解は…？" holds before the answer reveal. */
+  revealCountdownNumber?: number;
+  revealCountdownTotal?: number;
+  /** Best-effort vibration feedback on supported play-side devices. */
+  hapticsEnabled?: boolean;
   /** Points earned this round (set at reveal); speed-weighted. Shown small on
    *  the phone — the host screen owns the question's worth. */
   awardedPoints?: number | null;
@@ -198,7 +235,7 @@ export function PhoneScreen({
   // -------------------------------------------------------------------------
   if (waiting) {
     return (
-      <PhoneFrame {...headerProps}>
+      <PhoneFrame {...headerProps} hapticsEnabled={hapticsEnabled}>
         <WaitingScreen
           nickname={nickname}
           avatarInitial={avatarInitial}
@@ -216,7 +253,7 @@ export function PhoneScreen({
   // -------------------------------------------------------------------------
   if (ended) {
     return (
-      <PhoneFrame {...headerProps}>
+      <PhoneFrame {...headerProps} hapticsEnabled={hapticsEnabled}>
         <PlayerStanding
           final
           nickname={finalNickname}
@@ -234,7 +271,7 @@ export function PhoneScreen({
   // -------------------------------------------------------------------------
   if (scoreboard) {
     return (
-      <PhoneFrame {...headerProps}>
+      <PhoneFrame {...headerProps} hapticsEnabled={hapticsEnabled}>
         <PlayerStanding
           final={false}
           rank={rank}
@@ -253,6 +290,7 @@ export function PhoneScreen({
   return (
     <PhoneFrame
       {...headerProps}
+      hapticsEnabled={hapticsEnabled}
       // On reveal, wash the WHOLE frame (behind the header too) and fade it into
       // the page bg — so there's no seam at the top, sides, or bottom.
       tint={
@@ -285,6 +323,9 @@ export function PhoneScreen({
         onPick={onPick}
         roundPhase={roundPhase}
         countdownNumber={countdownNumber}
+        revealCountdownNumber={revealCountdownNumber}
+        revealCountdownTotal={revealCountdownTotal}
+        hapticsEnabled={hapticsEnabled}
         awardedPoints={awardedPoints}
       />
     </PhoneFrame>

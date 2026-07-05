@@ -10,10 +10,12 @@
 // Container-relative: it fills its parent (flex:1) and never reaches for the
 // viewport, so each host just gives it a slot.
 
+import { useEffect, useRef } from "react";
 import { m } from "motion/react";
 import Image from "next/image";
 import type { Choice } from "@/lib/quiz";
 import { POINTS_UNIT } from "@/lib/quiz";
+import { PLAYER_HAPTICS, playHaptic } from "@/lib/haptics";
 import { ReadingWaitMessage } from "@/components/LobbyUi";
 import { CountdownRing } from "@/components/CountdownRing";
 import { JellyButton } from "@/components/JellyButton";
@@ -72,7 +74,20 @@ const missingAnswerStyle = {
 
 // Lead screen: await — wait for the host's go (the phone is a controller, so
 // just a calm "待っています"); countdown — a small 3-2-1 ring before answers open.
-function PlayerLead({ phase, n }: { phase: "await" | "countdown"; n: number }) {
+function PlayerLead({
+  phase,
+  n,
+  hapticsEnabled,
+}: {
+  phase: "await" | "countdown";
+  n: number;
+  hapticsEnabled: boolean;
+}) {
+  useEffect(() => {
+    if (!hapticsEnabled || phase !== "countdown" || n <= 0) return;
+    playHaptic(PLAYER_HAPTICS.countdownTick);
+  }, [hapticsEnabled, phase, n]);
+
   return (
     <div style={playerLeadStyle}>
       {phase === "countdown" ? (
@@ -135,7 +150,10 @@ export function PlayerBoard({
   onPick,
   roundPhase = null,
   countdownNumber = 0,
+  revealCountdownNumber = 0,
+  revealCountdownTotal = 4,
   awardedPoints = null,
+  hapticsEnabled = false,
 }: {
   choices: Choice[];
   picked: number | null;
@@ -144,6 +162,9 @@ export function PlayerBoard({
   onPick: (key: string) => void;
   roundPhase?: RoundPhase;
   countdownNumber?: number;
+  revealCountdownNumber?: number;
+  revealCountdownTotal?: number;
+  hapticsEnabled?: boolean;
   /** Points earned this round (set at reveal); speed-weighted. The phone is just
    *  a controller — the host screen shows the question's worth, so this personal
    *  gain is the only points the phone surfaces. */
@@ -154,20 +175,44 @@ export function PlayerBoard({
   // `correct` undefined) until reveal_answer arrives.
   const correct = revealed && correctId >= 0 ? choices[correctId] : undefined;
   const isRight = revealed && picked === correctId;
+  const lastRevealHapticRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!revealed) {
+      lastRevealHapticRef.current = null;
+      return;
+    }
+    if (!hapticsEnabled || !correct) return;
+    const key = `${correctId}:${picked ?? "none"}`;
+    if (lastRevealHapticRef.current === key) return;
+    lastRevealHapticRef.current = key;
+    if (picked === null) {
+      playHaptic(PLAYER_HAPTICS.noAnswerReveal);
+    } else {
+      playHaptic(isRight ? PLAYER_HAPTICS.correctReveal : PLAYER_HAPTICS.incorrectReveal);
+    }
+  }, [correct, correctId, hapticsEnabled, isRight, picked, revealed]);
+
   const handlePick = (id: number) => {
     const choice = choices.find((c) => c.id === id);
-    if (choice) onPick(choice.key);
+    if (!choice) return;
+    onPick(choice.key);
   };
 
   // Lead — 3-2-1 countdown, then "read the question".
   if (roundPhase === "await" || roundPhase === "countdown") {
-    return <PlayerLead phase={roundPhase} n={countdownNumber} />;
+    return <PlayerLead phase={roundPhase} n={countdownNumber} hapticsEnabled={hapticsEnabled} />;
   }
 
   // Reveal 溜め — the server withholds the answer during the host's drumroll, so
   // show the shared suspense prompt until correct_key arrives (reveal_answer).
   if (revealed && !correct) {
-    return <RevealSuspense variant="player" />;
+    return (
+      <RevealSuspense
+        variant="player"
+        countdownNumber={revealCountdownNumber}
+        countdownTotal={revealCountdownTotal}
+      />
+    );
   }
 
   // Reveal — the answer card. The full-screen tint + candy rain are painted by the

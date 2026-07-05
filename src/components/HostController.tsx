@@ -199,7 +199,10 @@ export function HostController({
       ) : state === "scoreboard" ? (
         <Leaderboard leaderboard={game.leaderboard} final={false} maxPoints={game.maxPoints} />
       ) : drumrolling ? (
-        <HostRevealSuspense />
+        <HostRevealSuspense
+          countdownNumber={game.revealCountdownNumber}
+          countdownTotal={DRUMROLL_MS / 1000}
+        />
       ) : (
         <HostScreen
           choices={choices}

@@ -12,15 +12,19 @@ type PermissionCapable<T> = T & {
 };
 
 const RAD = Math.PI / 180;
-let motionPermissionRequested = false;
+// "idle" → retryable; "pending" → a prompt may be on screen; "done" → the user
+// actually answered (granted OR denied — iOS won't re-prompt either way).
+let motionPermissionState: "idle" | "pending" | "done" = "idle";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+// iOS only shows the permission dialog when requestPermission() runs inside a
+// COMPLETED user gesture (click/touchend) — calls from pointerdown/touchstart
+// reject immediately, so callers must invoke this from click/touchend handlers.
 export function requestMotionPermission(): void {
-  if (motionPermissionRequested) return;
-  motionPermissionRequested = true;
+  if (motionPermissionState !== "idle") return;
   if (typeof window === "undefined") return;
 
   const DeviceOrientation = window.DeviceOrientationEvent as
@@ -38,8 +42,19 @@ export function requestMotionPermission(): void {
     requests.push(DeviceMotion.requestPermission());
   }
 
-  if (requests.length === 0) return;
-  void Promise.allSettled(requests);
+  if (requests.length === 0) {
+    motionPermissionState = "done"; // no permission API — events just flow
+    return;
+  }
+
+  motionPermissionState = "pending";
+  void Promise.allSettled(requests).then((results) => {
+    // fulfilled = the user saw the dialog and answered ("granted"/"denied").
+    // All-rejected = the call wasn't accepted as a user gesture — retry on the
+    // next tap instead of silently giving up forever.
+    const answered = results.some((r) => r.status === "fulfilled");
+    motionPermissionState = answered ? "done" : "idle";
+  });
 }
 
 export function attachMotionGravity({
@@ -84,11 +99,14 @@ export function attachMotionGravity({
     requestMotionPermission();
     onWake?.();
   };
+  const wake = () => onWake?.();
 
   window.addEventListener("deviceorientation", onOrientation);
   window.addEventListener("deviceorientationabsolute", onOrientation as EventListener);
   window.addEventListener("devicemotion", onMotion);
-  window.addEventListener("pointerdown", requestMotionPermissionAndWake, { passive: true });
+  // Permission only from completed gestures (touchend/click) — iOS rejects
+  // requestPermission() from pointerdown. pointerdown still wakes the pile.
+  window.addEventListener("pointerdown", wake, { passive: true });
   window.addEventListener("touchend", requestMotionPermissionAndWake, { passive: true });
   window.addEventListener("click", requestMotionPermissionAndWake, { passive: true });
 
@@ -96,7 +114,7 @@ export function attachMotionGravity({
     window.removeEventListener("deviceorientation", onOrientation);
     window.removeEventListener("deviceorientationabsolute", onOrientation as EventListener);
     window.removeEventListener("devicemotion", onMotion);
-    window.removeEventListener("pointerdown", requestMotionPermissionAndWake);
+    window.removeEventListener("pointerdown", wake);
     window.removeEventListener("touchend", requestMotionPermissionAndWake);
     window.removeEventListener("click", requestMotionPermissionAndWake);
   };

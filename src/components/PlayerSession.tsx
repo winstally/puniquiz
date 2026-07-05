@@ -25,6 +25,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { hydrateChoices } from "@/lib/quiz";
+import { DRUMROLL_MS } from "@/lib/reveal-timing";
 import { useGameState } from "@/lib/realtime/useGameState";
 import { usePlayerSession } from "@/lib/realtime/usePlayerSession";
 import { usePresence, type PresenceMeta } from "@/lib/realtime/usePresence";
@@ -213,6 +214,8 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       onPick={session.pick}
       roundPhase={game.roundPhase}
       countdownNumber={game.countdownNumber}
+      revealCountdownNumber={game.revealCountdownNumber}
+      revealCountdownTotal={DRUMROLL_MS / 1000}
       awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
       finalNickname={nickname}
