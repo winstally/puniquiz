@@ -267,45 +267,6 @@ export function PhoneScreen({
   );
 }
 
-// Shared centered layout for the waiting / loading states inside the phone.
-function CenteredState({
-  emoji,
-  decoration,
-  title,
-  subtitle,
-  footer,
-}: {
-  emoji?: string;
-  decoration?: React.ReactNode;
-  title: string;
-  subtitle: string;
-  footer?: React.ReactNode;
-}) {
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 16,
-        textAlign: "center",
-        padding: "24px 26px 36px",
-      }}
-    >
-      {decoration ?? (emoji ? <span style={{ fontSize: 46 }}>{emoji}</span> : null)}
-      <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 24, margin: 0, color: "var(--ink)" }}>
-        {title}
-      </h2>
-      <p style={{ margin: 0, color: "var(--ink-soft)", fontWeight: 500, fontSize: 14, lineHeight: 1.6 }}>{subtitle}</p>
-      {footer}
-    </div>
-  );
-}
-
 // -----------------------------------------------------------------------------
 // WAITING (lobby) — mirrors host LobbyView: shimmer heading + hero card + PIN.
 // -----------------------------------------------------------------------------

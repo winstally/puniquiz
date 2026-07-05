@@ -1,12 +1,27 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "animate.css";
-import { Geist } from "next/font/google";
+import { DM_Mono, Geist, Zen_Kaku_Gothic_New, Zen_Maru_Gothic } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { Footer } from "@/components/Footer";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+const zenMaru = Zen_Maru_Gothic({
+  subsets: ["latin"],
+  weight: ["500", "700"],
+  variable: "--font-display",
+});
+const zenKaku = Zen_Kaku_Gothic_New({
+  subsets: ["latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-body",
+});
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  weight: "500",
+  variable: "--font-mono",
+});
 
 export const metadata: Metadata = {
   title: "puni — live quiz lounge",
@@ -19,19 +34,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ja" className={cn("font-sans", geist.variable)}>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=DM+Mono:wght@500&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="ja" className={cn("font-sans", geist.variable, zenMaru.variable, zenKaku.variable, dmMono.variable)}>
       <body>
         {children}
         <Footer />

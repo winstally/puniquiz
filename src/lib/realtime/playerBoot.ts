@@ -24,15 +24,18 @@ export function usePlayerBootRefresh(
   session: Pick<UsePlayerSession, "status" | "isMember" | "refresh">,
   game: Pick<UseGameState, "hydrated" | "refresh">,
 ) {
+  const { status, isMember, refresh: refreshSession } = session;
+  const { hydrated, refresh: refreshGame } = game;
+
   useEffect(() => {
     if (
-      session.status === "no_player" ||
-      session.status === "anonymous_disabled" ||
-      session.status === "error"
+      status === "no_player" ||
+      status === "anonymous_disabled" ||
+      status === "error"
     ) {
       return;
     }
-    if (session.isMember && game.hydrated) return;
+    if (isMember && hydrated) return;
 
     let cancelled = false;
     let attempt = 0;
@@ -40,7 +43,8 @@ export function usePlayerBootRefresh(
 
     const run = () => {
       if (cancelled) return;
-      refreshPlayerBoot(session, game);
+      refreshSession();
+      refreshGame();
     };
 
     const schedule = () => {
@@ -63,10 +67,10 @@ export function usePlayerBootRefresh(
     };
   }, [
     gameId,
-    session.status,
-    session.isMember,
-    game.hydrated,
-    session.refresh,
-    game.refresh,
+    status,
+    isMember,
+    hydrated,
+    refreshSession,
+    refreshGame,
   ]);
 }

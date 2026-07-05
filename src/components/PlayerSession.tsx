@@ -22,6 +22,7 @@
 // a small join prompt linking to "/?join={pin}" instead of the board.
 
 import { hydrateChoices } from "@/lib/quiz";
+import Link from "next/link";
 import { useGameState } from "@/lib/realtime/useGameState";
 import { usePlayerSession } from "@/lib/realtime/usePlayerSession";
 import { refreshPlayerBoot, usePlayerBootRefresh } from "@/lib/realtime/playerBoot";
@@ -182,9 +183,9 @@ function JoinPrompt({ pin }: { pin: string | null }) {
   return (
     <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       <div style={{ padding: "12px 16px 0" }}>
-        <a href="/" aria-label="puni — ホームへ" style={{ display: "inline-flex", textDecoration: "none" }}>
+        <Link href="/" aria-label="puni — ホームへ" style={{ display: "inline-flex", textDecoration: "none" }}>
           <BrandMark />
-        </a>
+        </Link>
       </div>
       <div
         style={{
