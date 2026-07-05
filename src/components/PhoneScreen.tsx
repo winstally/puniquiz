@@ -76,7 +76,7 @@ function PhoneFrame({
   rainDelay,
 }: {
   children: React.ReactNode;
-  nickname: string;
+  nickname?: string | null;
   avatarInitial: string;
   avatarColor?: string | null;
   connecting?: boolean;
@@ -91,6 +91,8 @@ function PhoneFrame({
   /** Lead (ms) before the rain starts (lets the static panel read first). */
   rainDelay?: number;
 }) {
+  const displayNickname = nickname?.trim() || null;
+
   return (
     <div
       style={phoneFrameStyle(tint)}
@@ -101,12 +103,14 @@ function PhoneFrame({
       <div style={phoneContentLayerStyle}>
         <LobbyHeader>
           {onLeave ? <PlayerLeaveButton onClick={onLeave} /> : null}
-          <PlayerIdentityPill
-            nickname={nickname}
-            initial={avatarInitial}
-            color={avatarColor}
-            connecting={connecting}
-          />
+          {displayNickname ? (
+            <PlayerIdentityPill
+              nickname={displayNickname}
+              initial={avatarInitial}
+              color={avatarColor}
+              connecting={connecting}
+            />
+          ) : null}
         </LobbyHeader>
         {children}
       </div>
@@ -120,7 +124,7 @@ export function PhoneScreen({
   correctId,
   revealed,
   onPick,
-  nickname = "なお",
+  nickname = null,
   finalNickname = null,
   initial,
   avatarColor,
@@ -154,7 +158,7 @@ export function PhoneScreen({
   // Receives the stable choice key (matches HostScreen's key-based model),
   // resolved here from JellyButton's numeric id.
   onPick: (key: string) => void;
-  nickname?: string;
+  nickname?: string | null;
   finalNickname?: string | null;
   initial?: string;
   avatarColor?: string | null;
@@ -182,8 +186,8 @@ export function PhoneScreen({
   const correct = revealed && correctId >= 0 ? choices[correctId] : undefined;
   const isRight = revealed && picked === correctId;
   // First grapheme of the nickname as the avatar fallback when no explicit
-  // initial is supplied. Falls back to the original hardcoded "な".
-  const avatarInitial = initial ?? [...nickname][0] ?? "な";
+  // initial is supplied.
+  const avatarInitial = initial ?? (nickname ? [...nickname][0] : "?");
   const headerProps = { nickname, avatarInitial, avatarColor, connecting, onLeave };
 
   // -------------------------------------------------------------------------
@@ -292,32 +296,41 @@ function WaitingScreen({
   pin,
   showReloadHint = false,
 }: {
-  nickname: string;
+  nickname?: string | null;
   avatarInitial: string;
   avatarColor?: string | null;
   pin?: string;
   showReloadHint?: boolean;
 }) {
+  const displayName = nickname?.trim() ?? "";
+  const showIdentityCard = Boolean(displayName || pin);
+
   return (
     <LobbyBody>
       <div role="status" aria-live="polite" style={waitingStatusStyle}>
         <LobbyWaitingHeading size="sm">ゲーム開始を待っています</LobbyWaitingHeading>
-        <LobbyHeroGlow>
-          <LobbyCard style={waitingCardStyle}>
-            <PlayerAvatar
-              nickname={nickname}
-              initial={avatarInitial}
-              color={avatarColor}
-              size="2xl"
-            />
-            <span
-              style={waitingNameStyle}
-            >
-              {nickname}
-            </span>
-            {pin ? <JoinCodeDisplay pin={pin} /> : null}
-          </LobbyCard>
-        </LobbyHeroGlow>
+        {showIdentityCard ? (
+          <LobbyHeroGlow>
+            <LobbyCard style={waitingCardStyle}>
+              {displayName ? (
+                <>
+                  <PlayerAvatar
+                    nickname={displayName}
+                    initial={avatarInitial}
+                    color={avatarColor}
+                    size="2xl"
+                  />
+                  <span
+                    style={waitingNameStyle}
+                  >
+                    {displayName}
+                  </span>
+                </>
+              ) : null}
+              {pin ? <JoinCodeDisplay pin={pin} /> : null}
+            </LobbyCard>
+          </LobbyHeroGlow>
+        ) : null}
         {showReloadHint ? <LobbyReloadHint /> : null}
       </div>
     </LobbyBody>

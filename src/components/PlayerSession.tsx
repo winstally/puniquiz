@@ -158,7 +158,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       ? choices.findIndex((c) => c.key === game.correctKey)
       : -1;
 
-  const nickname = session.nickname || "あなた";
+  const nickname = session.nickname.trim() || null;
   const initial = session.avatarInitial ?? undefined;
   const avatarColor = session.avatarColor ?? undefined;
 
@@ -215,7 +215,7 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       countdownNumber={game.countdownNumber}
       awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
-      finalNickname={session.nickname ?? null}
+      finalNickname={nickname}
       initial={initial}
       avatarColor={avatarColor}
       pin={game.pin ?? undefined}
