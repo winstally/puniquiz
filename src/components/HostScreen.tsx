@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { AnimatePresence, m } from "motion/react";
 import Image from "next/image";
 import type { Choice } from "@/lib/quiz";
@@ -261,6 +262,42 @@ function QuestionPointsBadge({ points }: { points: number }) {
   );
 }
 
+function QuestionMedia({
+  src,
+  demo,
+  reveal = false,
+}: {
+  src: string | null;
+  demo: boolean;
+  reveal?: boolean;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
+  if (!src || src === failedSrc) return null;
+
+  const image = (
+    <Image
+      src={src}
+      alt=""
+      fill
+      sizes={demo ? (reveal ? "360px" : "460px") : (reveal ? "420px" : "520px")}
+      unoptimized
+      onError={() => setFailedSrc(src)}
+      style={imageStyle}
+    />
+  );
+
+  if (reveal) {
+    return <div style={revealMediaStyle(demo)}>{image}</div>;
+  }
+
+  return (
+    <m.div layout style={hostMediaStyle(demo)}>
+      {image}
+    </m.div>
+  );
+}
+
 function BoardPanel({
   choices,
   question,
@@ -314,18 +351,7 @@ function BoardPanel({
         </m.div>
       ) : null}
 
-      {media ? (
-        <m.div layout style={hostMediaStyle(demo)}>
-          <Image
-            src={media}
-            alt=""
-            fill
-            sizes={demo ? "460px" : "520px"}
-            unoptimized
-            style={imageStyle}
-          />
-        </m.div>
-      ) : null}
+      <QuestionMedia src={media} demo={demo} />
 
       {!isAwait ? (
         <m.div
@@ -433,18 +459,7 @@ function RevealPanel({
     >
       <h2 style={{ ...headingStyle, fontSize: "clamp(22px,2.8vw,30px)", textAlign: "center", width: "100%" }}>{question}</h2>
 
-      {media ? (
-        <div style={revealMediaStyle(demo)}>
-          <Image
-            src={media}
-            alt=""
-            fill
-            sizes={demo ? "360px" : "420px"}
-            unoptimized
-            style={imageStyle}
-          />
-        </div>
-      ) : null}
+      <QuestionMedia src={media} demo={demo} reveal />
 
       {correct ? (
         <m.div
