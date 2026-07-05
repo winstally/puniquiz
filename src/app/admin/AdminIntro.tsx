@@ -168,7 +168,7 @@ export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean 
             ))}
           </div>
           <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13 }}>
-            管理招待を通したブラウザだけが編集できます。
+            このブラウザで作成・編集したクイズが表示されます。
           </p>
         </div>
       ) : null}
