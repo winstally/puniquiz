@@ -10,7 +10,7 @@ import { PuniButton, PuniIcon } from "@/components/PuniButton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { puniButtonStyle } from "@/lib/puni-button";
 import { editLinkPath } from "@/lib/admin/quiz-authoring";
-import { rememberQuiz, useRecentQuizzes } from "@/lib/admin/recent-quizzes";
+import { useRecentQuizzes } from "@/lib/admin/recent-quizzes";
 import { createQuizAction, startDemoGameAction, startGameForQuizAction } from "@/app/actions";
 import { cardStyle } from "./admin-styles";
 
@@ -90,12 +90,6 @@ export function AdminIntro({ autoStartDemo = false }: { autoStartDemo?: boolean 
         toast.error(res.error);
         return;
       }
-      // Remember it locally so it appears in "編集を続ける" / the host launcher.
-      // Untitled until the user names it in the editor; the list shows a fallback.
-      rememberQuiz({
-        quizId: res.quizId,
-        title: "",
-      });
       router.push(res.redirect);
     });
   }
