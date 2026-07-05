@@ -19,6 +19,7 @@ import { CountdownRing } from "@/components/CountdownRing";
 import { JellyButton } from "@/components/JellyButton";
 import { RevealSuspense } from "@/components/RevealSuspense";
 import { COUNTDOWN_S, type RoundPhase } from "@/lib/realtime/useGameState";
+import { PLAYER_REVEAL_CANDY_SIZE, glowHaloStyle } from "@/components/glow-halo";
 
 const playerLeadStyle = {
   flex: 1,
@@ -58,8 +59,8 @@ const answerCardStyle = {
 const missingAnswerStyle = {
   display: "grid",
   placeItems: "center",
-  width: 76,
-  height: 76,
+  width: PLAYER_REVEAL_CANDY_SIZE,
+  height: PLAYER_REVEAL_CANDY_SIZE,
   borderRadius: 20,
   fontFamily: "var(--font-display)",
   fontWeight: 700,
@@ -93,14 +94,36 @@ function WaitingLine() {
 // shown under "あなたの回答" / "正解" in the reveal.
 function Gummi({ choice }: { choice: Choice }) {
   return (
-    <Image
-      src={choice.icon}
-      alt=""
-      width={76}
-      height={76}
-      unoptimized
-      style={{ display: "block", width: 76, height: 76, objectFit: "contain", filter: "drop-shadow(0 6px 10px rgba(0,0,0,0.18))" }}
-    />
+    <span
+      style={{
+        position: "relative",
+        display: "grid",
+        placeItems: "center",
+        width: PLAYER_REVEAL_CANDY_SIZE,
+        height: PLAYER_REVEAL_CANDY_SIZE,
+      }}
+    >
+      <span
+        aria-hidden
+        style={glowHaloStyle(choice.color)}
+      />
+      <Image
+        src={choice.icon}
+        alt=""
+        width={PLAYER_REVEAL_CANDY_SIZE}
+        height={PLAYER_REVEAL_CANDY_SIZE}
+        unoptimized
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "block",
+          width: PLAYER_REVEAL_CANDY_SIZE,
+          height: PLAYER_REVEAL_CANDY_SIZE,
+          objectFit: "contain",
+          filter: "drop-shadow(0 10px 16px rgba(0,0,0,0.16))",
+        }}
+      />
+    </span>
   );
 }
 

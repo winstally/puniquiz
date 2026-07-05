@@ -17,7 +17,11 @@ import type { RoundPhase } from "@/lib/realtime/useGameState";
 import { useDemoLoop, type DemoPhase } from "@/components/demoLoop";
 import { FloatingShapes } from "@/components/PuniDecor";
 import { DEMO_QUIZ_TEMPLATE, getDemoQuestionMedia } from "@/lib/demo-quiz";
-import { glowHaloStyle } from "@/components/glow-halo";
+import {
+  FEATURE_CANDY_FRAME_SIZE,
+  FEATURE_CANDY_SIZE,
+  glowHaloStyle,
+} from "@/components/glow-halo";
 
 // Hydration-safe "are we on the client yet" — false on the server AND the first
 // client (hydration) render, true afterwards. Lets the demo render the same
@@ -53,13 +57,26 @@ function Features() {
       <div className="feat-grid">
         {items.map((it, i) => (
           <ScrollReveal key={it.n} delay={i * 0.1} className="feat">
-            <span className="feat-art">
+            <span
+              className="feat-art"
+              style={{
+                width: FEATURE_CANDY_FRAME_SIZE,
+                height: FEATURE_CANDY_FRAME_SIZE,
+              }}
+            >
               <span
                 className="feat-glow"
                 aria-hidden
                 style={glowHaloStyle(it.accent)}
               />
-              <Image src={it.icon} alt="" width={140} height={140} className="feat-art-img" unoptimized />
+              <Image
+                src={it.icon}
+                alt=""
+                width={FEATURE_CANDY_SIZE}
+                height={FEATURE_CANDY_SIZE}
+                className="feat-art-img"
+                unoptimized
+              />
               <span className="feat-num" style={{ background: it.deep }}>{it.n}</span>
             </span>
             <h3 className="feat-title">
@@ -333,13 +350,13 @@ export function LandingStory() {
         .feat-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(4, 1fr); gap: clamp(16px, 2.5vw, 36px); }
         .feat { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; }
         .feat-art {
-          position: relative; width: 150px; height: 150px; border-radius: 999px; display: grid; place-items: center;
+          position: relative; border-radius: 999px; display: grid; place-items: center;
           transition: transform .18s ease;
         }
         /* Soft hazy halo behind the candy — blurred so it reads as a diffuse glow,
            kept on its own layer so the candy art itself stays crisp. */
         .feat:hover .feat-art { transform: translateY(-4px); }
-        .feat-art-img { position: relative; z-index: 1; width: 100px; height: 100px; object-fit: contain; display: block; filter: drop-shadow(0 10px 16px rgba(0,0,0,0.16)); }
+        .feat-art-img { position: relative; z-index: 1; object-fit: contain; display: block; filter: drop-shadow(0 10px 16px rgba(0,0,0,0.16)); }
         .feat-num {
           position: absolute; z-index: 2; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 999px;
           display: grid; place-items: center; color: #fff;
