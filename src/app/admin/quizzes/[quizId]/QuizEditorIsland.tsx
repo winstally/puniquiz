@@ -454,10 +454,11 @@ function useQuizEditorView({
         revokePreview(q.media_preview_url);
         q.choices.forEach((c) => revokePreview(c.image_preview_url));
       });
-      setState({ kind: "ready", draft: uploadedDraft });
+      const savedDraft = quizForEditToDraft(res.quiz);
+      setState({ kind: "ready", draft: savedDraft });
       setFieldErrors({});
       // Keep the locally-remembered title fresh after a save.
-      rememberQuiz({ quizId, title: uploadedDraft.title.trim() });
+      rememberQuiz({ quizId, title: savedDraft.title.trim() });
       toast.success("保存しました");
       // Stay on the page; the primary button now offers "もどる".
       setSavedClean(true);
@@ -851,7 +852,12 @@ function renderQuestionEditor({
               type="button"
               onClick={() => {
                 revokePreview(q.media_preview_url);
-                patchQuestion(qi, { media_url: null, media_file: null, media_preview_url: null });
+                patchQuestion(qi, {
+                  media_url: null,
+                  media_changed: true,
+                  media_file: null,
+                  media_preview_url: null,
+                });
               }}
               aria-label="画像を削除"
               style={imageRemoveButtonStyle}
@@ -872,7 +878,12 @@ function renderQuestionEditor({
                 if (f) {
                   stageImage(f, (file, previewUrl) => {
                     revokePreview(q.media_preview_url);
-                    patchQuestion(qi, { media_url: null, media_file: file, media_preview_url: previewUrl });
+                    patchQuestion(qi, {
+                      media_url: null,
+                      media_changed: true,
+                      media_file: file,
+                      media_preview_url: previewUrl,
+                    });
                   });
                 }
                 e.target.value = "";
@@ -910,7 +921,12 @@ function renderQuestionEditor({
                 onSelect={(file) => {
                   stageImage(file, (stagedFile, previewUrl) => {
                     revokePreview(c.image_preview_url);
-                    patchChoice(qi, ci, { image_url: null, image_file: stagedFile, image_preview_url: previewUrl });
+                    patchChoice(qi, ci, {
+                      image_url: null,
+                      image_changed: true,
+                      image_file: stagedFile,
+                      image_preview_url: previewUrl,
+                    });
                   });
                 }}
               />
@@ -919,7 +935,12 @@ function renderQuestionEditor({
               <AnswerChoiceRemoveImageButton
                 onClick={() => {
                   revokePreview(c.image_preview_url);
-                  patchChoice(qi, ci, { image_url: null, image_file: null, image_preview_url: null });
+                  patchChoice(qi, ci, {
+                    image_url: null,
+                    image_changed: true,
+                    image_file: null,
+                    image_preview_url: null,
+                  });
                 }}
               />
             ) : null;

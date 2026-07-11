@@ -34,11 +34,15 @@ export type DraftChoice = {
   key: string;
   label: string;
   image_url?: string | null;
+  /** True only when the editor explicitly replaces or removes this image. */
+  image_changed?: boolean;
   image_file?: File | null;
   image_preview_url?: string | null;
 };
 
 export type DraftQuestion = {
+  /** Stable database identity. Missing only for a newly added question. */
+  id?: string;
   text: string;
   /** Answer-window length in seconds, or null = 手動 (host closes by hand). */
   time_limit_seconds: number | null;
@@ -46,6 +50,8 @@ export type DraftQuestion = {
   choices: DraftChoice[];
   correct_key: string;
   media_url?: string | null;
+  /** True only when the editor explicitly replaces or removes this image. */
+  media_changed?: boolean;
   media_file?: File | null;
   media_preview_url?: string | null;
 };

@@ -26,9 +26,25 @@ import {
 // create_quiz(p_title, p_description) RETURNS TABLE(quiz_id)
 export type CreateQuizRow = { quiz_id: string };
 
-// One question as returned by get_quiz_for_edit / sent to save_quiz. This is the
-// ONLY shape that carries correct_key on the read side.
+// One question returned by get_quiz_for_edit. This is the only read shape that
+// carries correct_key.
 export type EditQuestion = {
+  id: string;
+  position: number;
+  eyebrow: string | null;
+  text: string;
+  choices: { key: string; label: string; image_url?: string | null }[];
+  correct_key: string;
+  time_limit_seconds: number | null;
+  points_base: number;
+  media_url?: string | null;
+};
+
+// One question sent to save_quiz. Existing rows carry their stable id. Image
+// fields are omitted when unchanged, null when explicitly removed, and a URL
+// when replaced.
+export type SaveQuestion = {
+  id?: string;
   position: number;
   eyebrow: string | null;
   text: string;
@@ -73,12 +89,14 @@ export function quizForEditToDraft(quiz: QuizForEdit): DraftQuiz {
         key: keyForIndex(i),
         label: typeof c?.label === "string" ? c.label : "",
         image_url: typeof c?.image_url === "string" ? c.image_url : null,
+        image_changed: false,
       }));
       // Keep correct_key only if it matches one of the choice keys.
       const correct_key = choices.some((c) => c.key === q.correct_key)
         ? q.correct_key
         : "";
       return {
+        id: q.id,
         text: q.text,
         // null = 手動 (manual). Preserve it; only fall back to the default when
         // the field is genuinely missing (undefined), not when it's null.
@@ -87,6 +105,7 @@ export function quizForEditToDraft(quiz: QuizForEdit): DraftQuiz {
         choices,
         correct_key,
         media_url: typeof q.media_url === "string" ? q.media_url : null,
+        media_changed: false,
       };
     });
 
@@ -118,21 +137,25 @@ export function emptyDraftQuestion(): DraftQuestion {
 // expects: contiguous positions, exactly four canonical a/b/c/d choice keys, and
 // correct_key re-pointed to the canonical key. The RPC
 // re-validates server-side; this is a clean client-side projection.
-export function draftToSaveQuestions(draft: DraftQuiz): EditQuestion[] {
+export function draftToSaveQuestions(draft: DraftQuiz): SaveQuestion[] {
   return draft.questions.map((q, i) => {
     if (q.choices.length !== FIXED_CHOICE_COUNT) {
       throw new Error("答えは4つ入力してください");
     }
-    const choices = q.choices.map((c, ci) => ({
-      key: keyForIndex(ci),
-      label: c.label.trim(),
-      image_url: c.image_url ?? null,
-    }));
+    const choices = q.choices.map((c, ci) => {
+      const choice: SaveQuestion["choices"][number] = {
+        key: keyForIndex(ci),
+        label: c.label.trim(),
+      };
+      if (!q.id || c.image_changed) choice.image_url = c.image_url ?? null;
+      return choice;
+    });
     // Find where the chosen correct choice landed after re-keying.
     const correctIndex = q.choices.findIndex((c) => c.key === q.correct_key);
     const correct_key =
       correctIndex >= 0 ? keyForIndex(correctIndex) : choices[0]?.key ?? "a";
-    return {
+    const question: SaveQuestion = {
+      ...(q.id ? { id: q.id } : {}),
       position: i,
       eyebrow: null,
       text: q.text.trim(),
@@ -140,7 +163,8 @@ export function draftToSaveQuestions(draft: DraftQuiz): EditQuestion[] {
       correct_key,
       time_limit_seconds: q.time_limit_seconds,
       points_base: q.points_base,
-      media_url: q.media_url ?? null,
     };
+    if (!q.id || q.media_changed) question.media_url = q.media_url ?? null;
+    return question;
   });
 }

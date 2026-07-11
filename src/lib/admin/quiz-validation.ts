@@ -7,7 +7,7 @@ import {
   MIN_POINTS,
   MIN_TIME_LIMIT,
 } from "@/lib/admin/quiz-form";
-import type { EditQuestion } from "@/lib/admin/quiz-authoring";
+import type { SaveQuestion } from "@/lib/admin/quiz-authoring";
 
 export type ValidationResult<T> =
   | { ok: true; data: T }
@@ -17,7 +17,7 @@ export type SaveQuizInput = {
   quizId: string;
   title: string;
   description: string | null;
-  questions: EditQuestion[];
+  questions: SaveQuestion[];
 };
 
 const UUID_RE =
@@ -47,6 +47,7 @@ const editChoiceSchema = z.object({
 
 const editQuestionSchema = z
   .object({
+    id: z.string().trim().refine((value) => UUID_RE.test(value), "問題IDが不正です").optional(),
     position: z.number().int().min(0, "問題の順序が不正です"),
     eyebrow: z.string().trim().max(80, "80文字以内で入力してください").nullable(),
     text: z.string().trim().min(1, "問題文を入力してください").max(200, "200文字以内で入力してください"),

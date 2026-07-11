@@ -634,7 +634,9 @@ export async function uploadQuizMediaAction(
   }
 }
 
-export async function saveQuizAction(input: SaveQuizInput): Promise<ActionResult<object>> {
+export async function saveQuizAction(
+  input: SaveQuizInput,
+): Promise<ActionResult<{ quiz: QuizForEdit }>> {
   try {
     const parsedInput = validateSaveQuizInput(input);
     if (!parsedInput.ok) return parsedInput;
@@ -654,7 +656,15 @@ export async function saveQuizAction(input: SaveQuizInput): Promise<ActionResult
       } as never,
     );
     if (error) return { ok: false, error: error.message };
-    return { ok: true };
+
+    const { data: quiz, error: reloadError } = await supabase.rpc(
+      "get_quiz_for_edit" as never,
+      { p_quiz_id: parsedInput.data.quizId } as never,
+    );
+    if (reloadError || !quiz) {
+      return { ok: false, error: reloadError?.message ?? "保存結果を読み込めませんでした" };
+    }
+    return { ok: true, quiz: quiz as QuizForEdit };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "不明なエラー" };
   }
