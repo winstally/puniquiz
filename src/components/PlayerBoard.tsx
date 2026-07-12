@@ -14,7 +14,7 @@ import { useEffect, useRef } from "react";
 import { m } from "motion/react";
 import Image from "next/image";
 import type { Choice } from "@/lib/quiz";
-import { POINTS_UNIT, QUESTION_IMAGE_ASPECT } from "@/lib/quiz";
+import { POINTS_UNIT } from "@/lib/quiz";
 import { AnswerChoicePhoto } from "@/components/AnswerChoiceCard";
 import { PLAYER_HAPTICS, playHaptic } from "@/lib/haptics";
 import { ReadingWaitMessage } from "@/components/LobbyUi";
@@ -155,7 +155,6 @@ export function PlayerBoard({
   onPick,
   roundPhase = null,
   countdownNumber = 0,
-  questionMedia = null,
   answerChangeAllowed = false,
   awardedPoints = null,
   hapticsEnabled = false,
@@ -167,9 +166,6 @@ export function PlayerBoard({
   onPick: (key: string) => void;
   roundPhase?: RoundPhase;
   countdownNumber?: number;
-  /** Question image — mirrored small on the phone so photo questions work
-   *  without looking up at the big screen. */
-  questionMedia?: string | null;
   /** じっくりモード: 締切まで回答を変更できる（ボタンをロックしない）。 */
   answerChangeAllowed?: boolean;
   hapticsEnabled?: boolean;
@@ -301,30 +297,6 @@ export function PlayerBoard({
       <p style={{ textAlign: "center", color: "var(--ink-soft)", fontWeight: 500, fontSize: 13, margin: "0 0 14px" }}>
         {answerChangeAllowed ? "答えを選んでタップ（あとから変更OK）" : "答えを選んでタップ！"}
       </p>
-
-      {questionMedia ? (
-        <div
-          style={{
-            position: "relative",
-            margin: "0 18px 14px",
-            aspectRatio: QUESTION_IMAGE_ASPECT,
-            borderRadius: 16,
-            overflow: "hidden",
-            background: "color-mix(in oklch, var(--plum) 5%, #fff)",
-            boxShadow: "var(--shadow-soft)",
-            flexShrink: 0,
-          }}
-        >
-          <Image
-            src={questionMedia}
-            alt=""
-            fill
-            sizes="90vw"
-            unoptimized
-            style={{ objectFit: "contain", display: "block" }}
-          />
-        </div>
-      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "0 18px 8px", flex: 1 }}>
         {choices.map((c, i) => (
