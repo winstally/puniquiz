@@ -345,6 +345,7 @@ type HostRpcName =
   | "reveal_round"
   | "reveal_answer"
   | "set_registration_lock"
+  | "set_answer_mode"
   | "host_start_demo"
   | "advance_quiz"
   | "end_game";
@@ -431,6 +432,16 @@ export async function setRegistrationLockAction(gameId: string, locked: boolean)
   if (!authorized.ok) return authorized;
   return runAuthorizedHostAction(authorized, "set_registration_lock", {
     p_locked: parsedLocked.data,
+  });
+}
+
+export async function setAnswerModeAction(gameId: string, allowed: boolean) {
+  const parsedAllowed = validateBoolean(allowed);
+  if (!parsedAllowed.ok) return { ok: false, error: "回答モードが不正です" };
+  const authorized = await authorizeHostAction(gameId);
+  if (!authorized.ok) return authorized;
+  return runAuthorizedHostAction(authorized, "set_answer_mode", {
+    p_allowed: parsedAllowed.data,
   });
 }
 

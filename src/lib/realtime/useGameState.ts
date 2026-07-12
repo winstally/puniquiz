@@ -38,6 +38,7 @@ import {
   type GameState,
   type LeaderboardEntry,
   type LockEvent,
+  type ModeEvent,
   type PhaseEvent,
   type PublicChoice,
   type QuestionEvent,
@@ -108,6 +109,8 @@ export type UseGameState = {
   notFound: boolean;
   /** Registration lock — true when the host has stopped new players joining. */
   registrationLocked: boolean;
+  /** じっくり mode — players may change their answer until the round closes. */
+  answerChangeAllowed: boolean;
   /** A next quiz is queued — once ended, the host can continue the same game. */
   hasNext: boolean;
   /** The current quiz is the curated demo (server truth — survives reload/share). */
@@ -222,6 +225,7 @@ type GameViewState = {
   hydrated: boolean;
   notFound: boolean;
   registrationLocked: boolean;
+  answerChangeAllowed: boolean;
   hasNext: boolean;
   isDemo: boolean;
   maxPoints: number;
@@ -237,6 +241,7 @@ type GameViewAction =
   | { type: "reveal"; event: RevealEvent }
   | { type: "scoreboard"; event: ScoreboardEvent }
   | { type: "lock"; event: LockEvent }
+  | { type: "mode"; event: ModeEvent }
   | { type: "pin"; pin: string | null }
   | { type: "notFound"; notFound: boolean }
   | { type: "correctKey"; key: string | undefined };
@@ -257,6 +262,7 @@ const initialGameView: GameViewState = {
   hydrated: false,
   notFound: false,
   registrationLocked: false,
+  answerChangeAllowed: false,
   hasNext: false,
   isDemo: false,
   maxPoints: 0,
@@ -282,6 +288,7 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         leaderboard: snap.leaderboard ?? [],
         roster: snap.roster ?? [],
         registrationLocked: snap.registration_locked ?? false,
+        answerChangeAllowed: snap.answer_change_allowed ?? false,
         hasNext: snap.has_next ?? false,
         isDemo: snap.is_demo ?? false,
         maxPoints: snap.max_points ?? view.maxPoints,
@@ -370,6 +377,12 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
       return {
         ...view,
         registrationLocked: Boolean(action.event.registration_locked),
+        offset: action.event.server_now ? computeOffset(action.event.server_now) : view.offset,
+      };
+    case "mode":
+      return {
+        ...view,
+        answerChangeAllowed: Boolean(action.event.answer_change_allowed),
         offset: action.event.server_now ? computeOffset(action.event.server_now) : view.offset,
       };
     case "pin":
@@ -471,12 +484,18 @@ export function useGameState(gameId: string): UseGameState {
       dispatch({ type: "lock", event: payload.payload });
     };
 
+    // `mode` — host toggled the answer mode (早押し ⇄ 変更可).
+    const onMode = (payload: { payload: ModeEvent }) => {
+      dispatch({ type: "mode", event: payload.payload });
+    };
+
     ch.on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.phase }, onPhase)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.question }, onQuestion)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.vote }, onVote)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.reveal }, onReveal)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.scoreboard }, onScoreboard)
-      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.lock }, onLock);
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.lock }, onLock)
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.mode }, onMode);
 
     // Presence (lobby roster) — MUST be bound before subscribe().
     const syncPresence = () =>
@@ -550,11 +569,14 @@ export function useGameState(gameId: string): UseGameState {
   // While a future deadline exists, bump `tick` ~4x/sec. The actual seconds value
   // is DERIVED below from the absolute deadline + offset, so it self-corrects
   // against drift and we never call setState with the computed seconds here.
+  // answersOpenAt must ALSO drive ticking: a manual question (no time limit) has
+  // no deadline, but its 3-2-1 countdown still counts toward answers_open_at —
+  // without this the countdown froze on 無制限 questions.
   useEffect(() => {
-    if (!view.deadline) return;
+    if (!view.deadline && !view.answersOpenAt) return;
     const id = setInterval(() => setTick((t) => t + 1), 250);
     return () => clearInterval(id);
-  }, [view.deadline]);
+  }, [view.deadline, view.answersOpenAt]);
 
   // Recovery guard for missed/out-of-order realtime after reveal. If the UI is
   // still in the withheld-answer drumroll past the reveal window, pull the
@@ -614,6 +636,7 @@ export function useGameState(gameId: string): UseGameState {
     hydrated: view.hydrated,
     notFound: view.notFound,
     registrationLocked: view.registrationLocked,
+    answerChangeAllowed: view.answerChangeAllowed,
     hasNext: view.hasNext,
     isDemo: view.isDemo,
     maxPoints: view.maxPoints,

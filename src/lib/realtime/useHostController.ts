@@ -25,6 +25,7 @@ import {
   hostStartDemoAction,
   revealAnswerAction,
   revealRoundAction,
+  setAnswerModeAction,
   setRegistrationLockAction,
   type ActionResult,
 } from "@/app/actions";
@@ -44,6 +45,8 @@ export type UseHostController = {
   revealAnswer: () => Promise<void>;
   /** Toggle registration lock — stop / reopen new players joining. */
   setLock: (locked: boolean) => Promise<void>;
+  /** Toggle the answer mode (lobby only): 早押し ⇄ 変更できるじっくりモード. */
+  setAnswerMode: (allowed: boolean) => Promise<void>;
   /** From the lobby, warm up with the demo first (real quiz continues after). */
   startDemo: () => Promise<void>;
   /** After ending, continue the SAME game with the queued next quiz (→ lobby). */
@@ -125,6 +128,12 @@ export function useHostController(
       locked ? "締め切れませんでした" : "再開できませんでした",
     );
 
+  const setAnswerMode = (allowed: boolean) =>
+    run(
+      () => setAnswerModeAction(gameId, allowed),
+      "回答モードを変更できませんでした",
+    );
+
   const startDemo = () =>
     run(
       () => hostStartDemoAction(gameId),
@@ -143,5 +152,5 @@ export function useHostController(
       "ゲームを中止できませんでした",
     );
 
-  return { pending, start: next, next, openAnswers, reveal, revealAnswer, setLock, startDemo, advanceQuiz, end };
+  return { pending, start: next, next, openAnswers, reveal, revealAnswer, setLock, setAnswerMode, startDemo, advanceQuiz, end };
 }

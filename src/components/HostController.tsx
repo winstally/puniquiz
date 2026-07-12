@@ -27,7 +27,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight, Lock, LockOpen, LogOut, Play, Trophy } from "lucide-react";
+import { ArrowRight, Lock, LockOpen, LogOut, Play, Repeat, Zap } from "lucide-react";
 import { createGameAction } from "@/app/actions";
 import { hydrateChoices } from "@/lib/quiz";
 import { pageShell } from "@/lib/layout";
@@ -231,6 +231,7 @@ export function HostController({
             pending={host.pending || restarting}
             ready={!loading && lobbyReady}
             registrationLocked={game.registrationLocked}
+            answerChangeAllowed={game.answerChangeAllowed}
             hasNext={game.hasNext}
             awaitingAnswers={game.roundPhase === "await"}
             onStart={host.start}
@@ -242,6 +243,7 @@ export function HostController({
             onRestart={restart}
             onHome={goHome}
             onToggleLock={host.setLock}
+            onToggleAnswerMode={host.setAnswerMode}
           />
       ) : null}
 
@@ -341,6 +343,7 @@ function HostControls({
   pending,
   ready,
   registrationLocked,
+  answerChangeAllowed,
   hasNext,
   awaitingAnswers,
   onStart,
@@ -352,11 +355,14 @@ function HostControls({
   onRestart,
   onHome,
   onToggleLock,
+  onToggleAnswerMode,
 }: {
   state: ReturnType<typeof useGameState>["state"];
   pending: boolean;
   ready: boolean;
   registrationLocked: boolean;
+  /** じっくりモード: プレイヤーが締切まで回答を変更できる（false = 早押し）。 */
+  answerChangeAllowed: boolean;
   /** A next quiz is queued — the ended screen offers to continue the same game. */
   hasNext: boolean;
   /** Question is parked (await): the host hasn't opened answers yet. */
@@ -374,6 +380,8 @@ function HostControls({
   onRestart: () => void;
   onHome: () => void;
   onToggleLock: (locked: boolean) => void;
+  /** ロビーで回答モードを切り替える（早押し ⇄ じっくり）。 */
+  onToggleAnswerMode: (allowed: boolean) => void;
 }) {
   // Confirm gate before starting (closes the lobby), so a stray tap can't kick
   // the game off. Declared before the early return below to keep hook order stable.
@@ -414,9 +422,11 @@ function HostControls({
       primary = { label: "正解発表", onClick: onReveal };
       break;
     case "reveal":
-      primary = { label: "結果発表へ", onClick: onNext, icon: Trophy };
+      // 途中ランキングは廃止 — reveal から直接次の問題へ（最終問題なら結果発表）。
+      primary = { label: "次へ", onClick: onNext, icon: ArrowRight };
       break;
     case "scoreboard":
+      // Dormant: the server no longer enters `scoreboard`; kept for old games.
       primary = { label: "次の問題へ", onClick: onNext, icon: ArrowRight };
       break;
     case "ended":
@@ -448,17 +458,32 @@ function HostControls({
       }}
     >
       {state === "lobby" ? (
-        <PuniButton
-          type="button"
-          variant="soft"
-          size="md"
-          tone={registrationLocked ? "rose" : "default"}
-          icon={registrationLocked ? LockOpen : Lock}
-          disabled={pending || !ready}
-          onClick={() => onToggleLock(!registrationLocked)}
-        >
-          {registrationLocked ? "受付を再開" : "応募を締め切る"}
-        </PuniButton>
+        <>
+          <PuniButton
+            type="button"
+            variant="soft"
+            size="md"
+            tone={registrationLocked ? "rose" : "default"}
+            icon={registrationLocked ? LockOpen : Lock}
+            disabled={pending || !ready}
+            onClick={() => onToggleLock(!registrationLocked)}
+          >
+            {registrationLocked ? "受付を再開" : "応募を締め切る"}
+          </PuniButton>
+          {/* 回答モード: 早押し（最初のタップで確定・速さで加点）⇄
+              じっくり（締切まで変更可・正解は満点）。ロビーでのみ切替可。 */}
+          <PuniButton
+            type="button"
+            variant="soft"
+            size="md"
+            tone={answerChangeAllowed ? "plum" : "default"}
+            icon={answerChangeAllowed ? Repeat : Zap}
+            disabled={pending || !ready}
+            onClick={() => onToggleAnswerMode(!answerChangeAllowed)}
+          >
+            {answerChangeAllowed ? "じっくりモード" : "早押しモード"}
+          </PuniButton>
+        </>
       ) : null}
       {secondary ? (
         <PuniButton

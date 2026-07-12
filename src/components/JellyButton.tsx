@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import type { Choice } from "@/lib/quiz";
+import { AnswerChoicePhoto } from "@/components/AnswerChoiceCard";
 
 function jellyButtonStyle(locked: boolean, dimmed: boolean) {
   return {
@@ -63,22 +64,28 @@ export function JellyButton({
       onClick={locked ? undefined : () => onPick(choice.id)}
       style={jellyButtonStyle(locked, dimmed)}
     >
-      <Image
-        src={choice.icon}
-        alt=""
-        aria-hidden
-        width={176}
-        height={176}
-        unoptimized
-        style={{
-          width: "100%",
-          maxWidth: 176,
-          aspectRatio: "1 / 1",
-          objectFit: "contain",
-          display: "block",
-          filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.18))",
-        }}
-      />
+      {choice.image_url ? (
+        // Photo choice: the actual answer image (corner gummy keeps the
+        // colour/shape mapping to the host big screen).
+        <AnswerChoicePhoto choice={choice} size={132} />
+      ) : (
+        <Image
+          src={choice.icon}
+          alt=""
+          aria-hidden
+          width={176}
+          height={176}
+          unoptimized
+          style={{
+            width: "100%",
+            maxWidth: 176,
+            aspectRatio: "1 / 1",
+            objectFit: "contain",
+            display: "block",
+            filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.18))",
+          }}
+        />
+      )}
       <span
         style={{
           fontFamily: "var(--font-display)",

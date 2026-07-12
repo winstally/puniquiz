@@ -214,6 +214,8 @@ export function PlayerSession({ gameId }: { gameId: string }) {
       onPick={session.pick}
       roundPhase={game.roundPhase}
       countdownNumber={game.countdownNumber}
+      questionMedia={game.question?.media_url ?? null}
+      answerChangeAllowed={game.answerChangeAllowed}
       awardedPoints={session.myAnswer?.awarded_points ?? null}
       nickname={nickname}
       finalNickname={nickname}

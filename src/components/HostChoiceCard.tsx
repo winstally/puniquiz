@@ -37,6 +37,7 @@ export function HostChoiceCard({
   pop = false,
   fillBar = true,
   hover = true,
+  showTally = true,
 }: {
   choice: Choice;
   votes: number;
@@ -53,6 +54,8 @@ export function HostChoiceCard({
   fillBar?: boolean;
   /** Hover lift (off for static contexts). */
   hover?: boolean;
+  /** Show the live vote count + bar (the live host board hides them). */
+  showTally?: boolean;
 }) {
   const c = choice;
 
@@ -76,6 +79,7 @@ export function HostChoiceCard({
         // Tally lives with the bar (below the photo) — the gummy already breaks
         // the photo's top corner, so a second overlay on the image reads cluttered.
         footer={
+          !showTally ? null : (
           <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
             <span
               style={{
@@ -95,6 +99,7 @@ export function HostChoiceCard({
               percent={fillBar && total > 0 ? (votes / total) * 100 : 0}
             />
           </div>
+          )
         }
         overlay={
           <>

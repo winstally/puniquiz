@@ -14,7 +14,8 @@ import { useEffect, useRef } from "react";
 import { m } from "motion/react";
 import Image from "next/image";
 import type { Choice } from "@/lib/quiz";
-import { POINTS_UNIT } from "@/lib/quiz";
+import { POINTS_UNIT, QUESTION_IMAGE_ASPECT } from "@/lib/quiz";
+import { AnswerChoicePhoto } from "@/components/AnswerChoiceCard";
 import { PLAYER_HAPTICS, playHaptic } from "@/lib/haptics";
 import { ReadingWaitMessage } from "@/components/LobbyUi";
 import { CountdownRing } from "@/components/CountdownRing";
@@ -105,9 +106,13 @@ function WaitingLine() {
   return <ReadingWaitMessage label="次の問題を待っています" />;
 }
 
-// The answer's candy token (Kahoot-style: colour/shape only, NO answer text),
-// shown under "あなたの回答" / "正解" in the reveal.
+// The answer's token under "あなたの回答" / "正解" in the reveal. Photo choices
+// show the actual image (with the corner gummy), text-only choices keep the
+// Kahoot-style colour/shape candy.
 function Gummi({ choice }: { choice: Choice }) {
+  if (choice.image_url) {
+    return <AnswerChoicePhoto choice={choice} size={PLAYER_REVEAL_CANDY_SIZE} />;
+  }
   return (
     <span
       style={{
@@ -150,6 +155,8 @@ export function PlayerBoard({
   onPick,
   roundPhase = null,
   countdownNumber = 0,
+  questionMedia = null,
+  answerChangeAllowed = false,
   awardedPoints = null,
   hapticsEnabled = false,
 }: {
@@ -160,6 +167,11 @@ export function PlayerBoard({
   onPick: (key: string) => void;
   roundPhase?: RoundPhase;
   countdownNumber?: number;
+  /** Question image — mirrored small on the phone so photo questions work
+   *  without looking up at the big screen. */
+  questionMedia?: string | null;
+  /** じっくりモード: 締切まで回答を変更できる（ボタンをロックしない）。 */
+  answerChangeAllowed?: boolean;
   hapticsEnabled?: boolean;
   /** Points earned this round (set at reveal); speed-weighted. The phone is just
    *  a controller — the host screen shows the question's worth, so this personal
@@ -279,15 +291,40 @@ export function PlayerBoard({
     );
   }
 
-  // Answering — the jelly answer-button grid.
+  // Answering — the jelly answer-button grid. In じっくり mode nothing locks:
+  // players can re-tap to change their answer until the round closes.
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, textAlign: "center", fontSize: 22, margin: "10px 0 2px" }}>
         どれが正解？
       </h2>
-      <p style={{ textAlign: "center", color: "var(--ink-soft)", fontWeight: 500, fontSize: 13, margin: "0 0 18px" }}>
-        答えを選んでタップ！
+      <p style={{ textAlign: "center", color: "var(--ink-soft)", fontWeight: 500, fontSize: 13, margin: "0 0 14px" }}>
+        {answerChangeAllowed ? "答えを選んでタップ（あとから変更OK）" : "答えを選んでタップ！"}
       </p>
+
+      {questionMedia ? (
+        <div
+          style={{
+            position: "relative",
+            margin: "0 18px 14px",
+            aspectRatio: QUESTION_IMAGE_ASPECT,
+            borderRadius: 16,
+            overflow: "hidden",
+            background: "color-mix(in oklch, var(--plum) 5%, #fff)",
+            boxShadow: "var(--shadow-soft)",
+            flexShrink: 0,
+          }}
+        >
+          <Image
+            src={questionMedia}
+            alt=""
+            fill
+            sizes="90vw"
+            unoptimized
+            style={{ objectFit: "contain", display: "block" }}
+          />
+        </div>
+      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: "0 18px 8px", flex: 1 }}>
         {choices.map((c, i) => (
@@ -297,7 +334,7 @@ export function PlayerBoard({
             index={i}
             picked={picked === c.id}
             dimmed={picked !== null && picked !== c.id}
-            locked={picked !== null}
+            locked={!answerChangeAllowed && picked !== null}
             onPick={handlePick}
           />
         ))}
@@ -306,7 +343,7 @@ export function PlayerBoard({
       <div style={{ padding: "18px 18px 20px", textAlign: "center", minHeight: 60 }}>
         {picked !== null ? (
           <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--sage-deep)" }}>
-            回答を送信しました！
+            {answerChangeAllowed ? "回答しました（タップで変更できます）" : "回答を送信しました！"}
           </p>
         ) : (
           <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: "var(--ink-soft)" }}>

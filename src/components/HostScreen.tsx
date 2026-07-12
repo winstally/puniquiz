@@ -379,12 +379,12 @@ function BoardPanel({
                 />
               </div>
             )}
-            <AnswerStatus isCountdown={isCountdown} manual={manual} seconds={seconds} total={total} />
+            <AnswerStatus isCountdown={isCountdown} manual={manual} seconds={seconds} />
           </div>
 
           <div style={answerGridStyle(demo)}>
             {choices.map((c, i) => (
-              <HostChoiceCard key={c.id} choice={c} votes={votes[c.id] ?? 0} total={total} index={i} />
+              <HostChoiceCard key={c.id} choice={c} votes={votes[c.id] ?? 0} total={total} index={i} showTally={false} />
             ))}
           </div>
         </m.div>
@@ -393,33 +393,24 @@ function BoardPanel({
   );
 }
 
+// 回答済み人数はあえて出さない（誰かを急かす圧になるため）— 状態と残り時間だけ。
 function AnswerStatus({
   isCountdown,
   manual,
   seconds,
-  total,
 }: {
   isCountdown: boolean;
   manual: boolean;
   seconds: number;
-  total: number;
 }) {
   return (
     <div style={statusLineStyle}>
       {isCountdown ? (
         <span style={strongStatusStyle}>まもなく回答開始</span>
       ) : manual ? (
-        <>
-          <span style={strongStatusStyle}>回答受付中</span>
-          <span style={statusSeparatorStyle}>·</span>
-          <b style={tabularStatusStyle}>{total}人</b>が回答
-        </>
+        <span style={strongStatusStyle}>回答受付中</span>
       ) : (
-        <>
-          <span style={{ ...strongStatusStyle, fontVariantNumeric: "tabular-nums" }}>残り{seconds}秒</span>
-          <span style={statusSeparatorStyle}>·</span>
-          <b style={tabularStatusStyle}>{total}人</b>が回答
-        </>
+        <span style={{ ...strongStatusStyle, fontVariantNumeric: "tabular-nums" }}>残り{seconds}秒</span>
       )}
     </div>
   );

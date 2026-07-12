@@ -179,6 +179,8 @@ export function PhoneScreen({
   totalPlayers = 0,
   roundPhase = null,
   countdownNumber = 0,
+  questionMedia = null,
+  answerChangeAllowed = false,
   hapticsEnabled = true,
   awardedPoints = null,
   onLeave,
@@ -208,6 +210,10 @@ export function PhoneScreen({
   roundPhase?: RoundPhase;
   /** 3-2-1 number during the countdown sub-phase. */
   countdownNumber?: number;
+  /** Question image — shown small above the answer grid on the phone too. */
+  questionMedia?: string | null;
+  /** じっくりモード: 締切まで回答を変更できる（ボタンをロックしない）。 */
+  answerChangeAllowed?: boolean;
   /** Best-effort vibration feedback on supported play-side devices. */
   hapticsEnabled?: boolean;
   /** Points earned this round (set at reveal); speed-weighted. Shown small on
@@ -318,6 +324,8 @@ export function PhoneScreen({
         onPick={onPick}
         roundPhase={roundPhase}
         countdownNumber={countdownNumber}
+        questionMedia={questionMedia}
+        answerChangeAllowed={answerChangeAllowed}
         hapticsEnabled={hapticsEnabled}
         awardedPoints={awardedPoints}
       />
