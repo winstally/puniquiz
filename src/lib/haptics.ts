@@ -15,12 +15,12 @@ export const PLAYER_HAPTICS = {
 // an invisible checkbox, which is harmless.
 // ---------------------------------------------------------------------------
 
-let switchInput: HTMLInputElement | null = null;
+let switchLabel: HTMLLabelElement | null = null;
 let pendingTicks: number[] = [];
 
-function ensureSwitchInput(): HTMLInputElement | null {
+function ensureSwitchLabel(): HTMLLabelElement | null {
   if (typeof document === "undefined" || !document.body) return null;
-  if (switchInput?.isConnected) return switchInput;
+  if (switchLabel?.isConnected) return switchLabel;
 
   const label = document.createElement("label");
   label.setAttribute("aria-hidden", "true");
@@ -41,15 +41,17 @@ function ensureSwitchInput(): HTMLInputElement | null {
 
   label.appendChild(input);
   document.body.appendChild(label);
-  switchInput = input;
-  return input;
+  switchLabel = label;
+  return label;
 }
 
 function tickSwitch(): void {
-  const input = ensureSwitchInput();
-  if (!input) return;
+  const label = ensureSwitchLabel();
+  if (!label) return;
   try {
-    input.click();
+    // WebKit only fires the haptic when the click is routed THROUGH the
+    // label — clicking the input directly stays silent.
+    label.click();
   } catch {
     // Best-effort only.
   }
