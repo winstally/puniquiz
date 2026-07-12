@@ -427,7 +427,14 @@ export function useGameState(gameId: string): UseGameState {
       // so has_next / roster are fresh: returning to the lobby (chain advance or
       // reset), and opening the FIRST question (a demo prepend swaps the quiz on
       // lobby → Q1, so has_next flips to true here, before the demo's ended screen).
-      if (p.state === "lobby" || (p.state === "question_open" && p.position === 0)) {
+      // Also on "ended": the host can abort mid-question (end_game), whose phase
+      // event carries no leaderboard — without a re-pull, ranks stay empty
+      // ("集計中…" forever) until a manual reload.
+      if (
+        p.state === "lobby" ||
+        p.state === "ended" ||
+        (p.state === "question_open" && p.position === 0)
+      ) {
         setSnapshotNonce((n) => n + 1);
       }
       if (p.state === "question_open") {

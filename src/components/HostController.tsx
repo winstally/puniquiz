@@ -136,11 +136,14 @@ export function HostController({
   const startDemo = () => {
     void host.startDemo();
   };
-  // Host quits the whole session: end it for everyone, then return home. The
-  // entry point lives in the header (mirrors the player's 退出), with a confirm.
+  // Host quits the whole session: end it for everyone and stay on the final
+  // results (the ended view offers もう一度遊ぶ / ホームに戻る). The entry point
+  // lives in the header (mirrors the player's 退出), with a confirm. The
+  // refresh is a belt-and-braces snapshot pull in case the "ended" phase
+  // broadcast is missed.
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const endGame = () => {
-    void host.end().then(goHome);
+    void host.end().then(() => game.refresh());
   };
 
   // The body renders immediately with empty data (pin/roster/count fill in when
@@ -246,7 +249,7 @@ export function HostController({
         {showEndConfirm ? (
           <ConfirmDialog
             title="ゲームを中止しますか？"
-            description="参加者の画面にも終了が表示され、ホームに戻ります。"
+            description="全員の画面にここまでの結果が表示されます。"
             confirmLabel="中止する"
             cancelLabel="やめる"
             pending={host.pending}
