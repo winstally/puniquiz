@@ -221,6 +221,7 @@ export type Database = {
       }
       quizzes: {
         Row: {
+          answer_change_allowed: boolean
           created_at: string
           description: string | null
           id: string
@@ -231,6 +232,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          answer_change_allowed?: boolean
           created_at?: string
           description?: string | null
           id?: string
@@ -241,6 +243,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          answer_change_allowed?: boolean
           created_at?: string
           description?: string | null
           id?: string
@@ -479,6 +482,7 @@ export type Database = {
       }
       save_quiz: {
         Args: {
+          p_answer_change_allowed?: boolean
           p_description: string
           p_is_published: boolean
           p_questions: Json

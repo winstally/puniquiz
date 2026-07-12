@@ -22,12 +22,12 @@
 // board (HostScreen) is shown only while a round is in flight or revealed. A
 // host-only control bar (start / lock / reveal / next) drives the state machine.
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRight, Lock, LockOpen, LogOut, Play, Repeat, Zap } from "lucide-react";
+import { ArrowRight, Lock, LockOpen, LogOut, Play } from "lucide-react";
 import { createGameAction } from "@/app/actions";
 import { hydrateChoices } from "@/lib/quiz";
 import { pageShell } from "@/lib/layout";
@@ -105,6 +105,38 @@ export function HostController({
     bg: avatarColor(p.avatar_color, p.player_id),
   }));
   const count = presence.count;
+
+  // Lobby join toasts — celebrate each newcomer. Presence syncs arrive with the
+  // FULL current roster, so the first sync (recognisable because the host's own
+  // tracked entry is in it) only seeds the seen-set — a host reload mid-lobby
+  // must not re-toast everyone already in the room.
+  const seenPlayerIdsRef = useRef<Set<string> | null>(null);
+  const hostPresenceReady = presence.all.some((p) => p.player_id === me.player_id);
+  useEffect(() => {
+    if (!hostPresenceReady) return;
+    const ids = new Set(presence.roster.map((p) => p.player_id));
+    const seen = seenPlayerIdsRef.current;
+    if (seen && state === "lobby") {
+      for (const p of presence.roster) {
+        if (!seen.has(p.player_id)) {
+          const name = p.nickname?.trim();
+          toast.success(name ? `${name}さんが参加しました！` : "新しいプレイヤーが参加しました！");
+        }
+      }
+    }
+    seenPlayerIdsRef.current = ids;
+  }, [hostPresenceReady, presence.roster, state, me.player_id]);
+
+  // 全員回答トースト — during answering, once every connected player has an
+  // answer in, tell the host so they can close/reveal without waiting.
+  const allAnsweredToastKeyRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (game.roundPhase !== "answering") return;
+    if (count <= 0 || game.total < count) return;
+    if (allAnsweredToastKeyRef.current === position) return;
+    allAnsweredToastKeyRef.current = position;
+    toast.success("すべての人が回答済みです🎉");
+  }, [game.roundPhase, game.total, count, position]);
 
   const isHost = true;
   const router = useRouter();
@@ -231,7 +263,6 @@ export function HostController({
             pending={host.pending || restarting}
             ready={!loading && lobbyReady}
             registrationLocked={game.registrationLocked}
-            answerChangeAllowed={game.answerChangeAllowed}
             hasNext={game.hasNext}
             awaitingAnswers={game.roundPhase === "await"}
             onStart={host.start}
@@ -243,7 +274,6 @@ export function HostController({
             onRestart={restart}
             onHome={goHome}
             onToggleLock={host.setLock}
-            onToggleAnswerMode={host.setAnswerMode}
           />
       ) : null}
 
@@ -343,7 +373,6 @@ function HostControls({
   pending,
   ready,
   registrationLocked,
-  answerChangeAllowed,
   hasNext,
   awaitingAnswers,
   onStart,
@@ -355,14 +384,11 @@ function HostControls({
   onRestart,
   onHome,
   onToggleLock,
-  onToggleAnswerMode,
 }: {
   state: ReturnType<typeof useGameState>["state"];
   pending: boolean;
   ready: boolean;
   registrationLocked: boolean;
-  /** じっくりモード: プレイヤーが締切まで回答を変更できる（false = 早押し）。 */
-  answerChangeAllowed: boolean;
   /** A next quiz is queued — the ended screen offers to continue the same game. */
   hasNext: boolean;
   /** Question is parked (await): the host hasn't opened answers yet. */
@@ -380,8 +406,6 @@ function HostControls({
   onRestart: () => void;
   onHome: () => void;
   onToggleLock: (locked: boolean) => void;
-  /** ロビーで回答モードを切り替える（早押し ⇄ じっくり）。 */
-  onToggleAnswerMode: (allowed: boolean) => void;
 }) {
   // Confirm gate before starting (closes the lobby), so a stray tap can't kick
   // the game off. Declared before the early return below to keep hook order stable.
@@ -458,32 +482,17 @@ function HostControls({
       }}
     >
       {state === "lobby" ? (
-        <>
-          <PuniButton
-            type="button"
-            variant="soft"
-            size="md"
-            tone={registrationLocked ? "rose" : "default"}
-            icon={registrationLocked ? LockOpen : Lock}
-            disabled={pending || !ready}
-            onClick={() => onToggleLock(!registrationLocked)}
-          >
-            {registrationLocked ? "受付を再開" : "応募を締め切る"}
-          </PuniButton>
-          {/* 回答モード: 早押し（最初のタップで確定・速さで加点）⇄
-              じっくり（締切まで変更可・正解は満点）。ロビーでのみ切替可。 */}
-          <PuniButton
-            type="button"
-            variant="soft"
-            size="md"
-            tone={answerChangeAllowed ? "plum" : "default"}
-            icon={answerChangeAllowed ? Repeat : Zap}
-            disabled={pending || !ready}
-            onClick={() => onToggleAnswerMode(!answerChangeAllowed)}
-          >
-            {answerChangeAllowed ? "じっくりモード" : "早押しモード"}
-          </PuniButton>
-        </>
+        <PuniButton
+          type="button"
+          variant="soft"
+          size="md"
+          tone={registrationLocked ? "rose" : "default"}
+          icon={registrationLocked ? LockOpen : Lock}
+          disabled={pending || !ready}
+          onClick={() => onToggleLock(!registrationLocked)}
+        >
+          {registrationLocked ? "受付を再開" : "応募を締め切る"}
+        </PuniButton>
       ) : null}
       {secondary ? (
         <PuniButton

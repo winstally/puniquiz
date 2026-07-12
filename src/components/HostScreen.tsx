@@ -94,17 +94,6 @@ const strongStatusStyle = {
   fontWeight: 700,
 } as const;
 
-const tabularStatusStyle = {
-  color: "var(--ink)",
-  fontFamily: "var(--font-display)",
-  fontVariantNumeric: "tabular-nums",
-} as const;
-
-const statusSeparatorStyle = {
-  margin: "0 8px",
-  color: "var(--line)",
-} as const;
-
 const questionPointsBadgeStyle = {
   display: "inline-flex",
   alignItems: "baseline",

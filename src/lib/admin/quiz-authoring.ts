@@ -61,6 +61,8 @@ export type QuizForEdit = {
   title: string;
   description: string | null;
   is_published: boolean;
+  /** じっくりモード: プレイヤーが締切まで回答を変更できる（false = 早押し）。 */
+  answer_change_allowed?: boolean;
   questions: EditQuestion[];
 };
 
@@ -113,6 +115,7 @@ export function quizForEditToDraft(quiz: QuizForEdit): DraftQuiz {
     title: quiz.title,
     description: quiz.description ?? "",
     is_published: quiz.is_published,
+    answer_change_allowed: quiz.answer_change_allowed ?? false,
     questions: questions.length > 0 ? questions : [emptyDraftQuestion()],
   };
 }

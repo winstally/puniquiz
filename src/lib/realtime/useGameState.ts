@@ -38,7 +38,6 @@ import {
   type GameState,
   type LeaderboardEntry,
   type LockEvent,
-  type ModeEvent,
   type PhaseEvent,
   type PublicChoice,
   type QuestionEvent,
@@ -241,7 +240,6 @@ type GameViewAction =
   | { type: "reveal"; event: RevealEvent }
   | { type: "scoreboard"; event: ScoreboardEvent }
   | { type: "lock"; event: LockEvent }
-  | { type: "mode"; event: ModeEvent }
   | { type: "pin"; pin: string | null }
   | { type: "notFound"; notFound: boolean }
   | { type: "correctKey"; key: string | undefined };
@@ -379,12 +377,6 @@ function gameViewReducer(view: GameViewState, action: GameViewAction): GameViewS
         registrationLocked: Boolean(action.event.registration_locked),
         offset: action.event.server_now ? computeOffset(action.event.server_now) : view.offset,
       };
-    case "mode":
-      return {
-        ...view,
-        answerChangeAllowed: Boolean(action.event.answer_change_allowed),
-        offset: action.event.server_now ? computeOffset(action.event.server_now) : view.offset,
-      };
     case "pin":
       return { ...view, pin: action.pin };
     case "notFound":
@@ -484,18 +476,12 @@ export function useGameState(gameId: string): UseGameState {
       dispatch({ type: "lock", event: payload.payload });
     };
 
-    // `mode` — host toggled the answer mode (早押し ⇄ 変更可).
-    const onMode = (payload: { payload: ModeEvent }) => {
-      dispatch({ type: "mode", event: payload.payload });
-    };
-
     ch.on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.phase }, onPhase)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.question }, onQuestion)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.vote }, onVote)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.reveal }, onReveal)
       .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.scoreboard }, onScoreboard)
-      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.lock }, onLock)
-      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.mode }, onMode);
+      .on(REALTIME_LISTEN_TYPES.BROADCAST, { event: GAME_EVENTS.lock }, onLock);
 
     // Presence (lobby roster) — MUST be bound before subscribe().
     const syncPresence = () =>

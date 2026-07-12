@@ -33,7 +33,6 @@ export const GAME_EVENTS = {
   reveal: "reveal",
   scoreboard: "scoreboard",
   lock: "lock",
-  mode: "mode",
 } as const;
 export type GameEventName = (typeof GAME_EVENTS)[keyof typeof GAME_EVENTS];
 
@@ -104,13 +103,6 @@ export type LockEvent = {
   registration_locked: boolean;
   server_now?: string; // ISO timestamptz for client clock-offset estimation
 };
-
-// `mode` — host toggled the answer mode (早押し ⇄ 変更可) in the lobby.
-export type ModeEvent = {
-  answer_change_allowed: boolean;
-  server_now?: string; // ISO timestamptz for client clock-offset estimation
-};
-
 // Discriminated map of event name -> payload (for typed channel.on handlers).
 export type GameEventPayloadMap = {
   phase: PhaseEvent;
@@ -119,7 +111,6 @@ export type GameEventPayloadMap = {
   reveal: RevealEvent;
   scoreboard: ScoreboardEvent;
   lock: LockEvent;
-  mode: ModeEvent;
 };
 
 // -----------------------------------------------------------------------------
@@ -172,7 +163,7 @@ export type GameSnapshot = {
   phase_deadline: string | null; // ISO timestamptz
   server_now: string; // ISO timestamptz; for clock-offset estimation
   registration_locked?: boolean; // host stopped new joins
-  answer_change_allowed?: boolean; // じっくり mode: players may change their pick
+  answer_change_allowed?: boolean; // quiz-level じっくり mode: picks may change
   has_next?: boolean; // a next quiz is queued → after ending, can continue same game
   is_demo?: boolean; // the current quiz is the curated demo (server truth)
   answers_open_at?: string | null; // ISO; choices unlock / answer timer start

@@ -60,5 +60,7 @@ export type DraftQuiz = {
   title: string;
   description: string;
   is_published: boolean;
+  /** じっくりモード: プレイヤーが締切まで回答を変更できる（false = 早押し）。 */
+  answer_change_allowed: boolean;
   questions: DraftQuestion[];
 };

@@ -17,6 +17,8 @@ export type SaveQuizInput = {
   quizId: string;
   title: string;
   description: string | null;
+  /** じっくりモード: プレイヤーが締切まで回答を変更できる（false = 早押し）。 */
+  answerChangeAllowed: boolean;
   questions: SaveQuestion[];
 };
 
@@ -84,6 +86,7 @@ const saveQuizInputSchema = z
       .refine((value) => UUID_RE.test(value), "クイズが見つかりません"),
     title: z.string().trim().min(1, "タイトルを入力してください").max(80, "80文字以内で入力してください"),
     description: nullableTrimmedTextSchema,
+    answerChangeAllowed: z.boolean(),
     questions: z.array(editQuestionSchema).min(1, "問題を1問以上追加してください"),
   })
   .superRefine((quiz, ctx) => {

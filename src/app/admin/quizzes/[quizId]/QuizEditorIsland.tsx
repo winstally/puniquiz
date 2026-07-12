@@ -296,6 +296,7 @@ function useQuizEditorView({
       quizId,
       title: inputDraft.title.trim(),
       description: inputDraft.description.trim() || null,
+      answerChangeAllowed: inputDraft.answer_change_allowed,
       questions: draftToSaveQuestions(inputDraft),
     };
   }
@@ -690,6 +691,55 @@ function renderQuizEditorReady({
           />
           <InlineFieldError id={fieldErrorId(fieldKey.description)} message={descriptionError} />
         </label>
+
+        {/* 回答モード — クイズ単位の設定。早押し = 最初のタップで確定・速いほど
+            高得点 / じっくり = 締切まで変更OK・正解は満点。 */}
+        <div style={labelStyle}>
+          <span style={{ ...eyebrowStyle, letterSpacing: 1.5 }}>回答モード</span>
+          <div role="radiogroup" aria-label="回答モード" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {(
+              [
+                { allowed: false, label: "⚡ 早押し", hint: "最初のタップで確定・速いほど高得点" },
+                { allowed: true, label: "🔁 じっくり", hint: "締切まで変更OK・正解は満点" },
+              ] as const
+            ).map((mode) => {
+              const active = draft.answer_change_allowed === mode.allowed;
+              return (
+                <button
+                  key={mode.label}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => patchQuiz({ answer_change_allowed: mode.allowed })}
+                  style={{
+                    flex: "1 1 220px",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    gap: 4,
+                    padding: "12px 16px",
+                    borderRadius: 16,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    border: active
+                      ? "2px solid var(--plum)"
+                      : "2px solid var(--line)",
+                    background: active
+                      ? "color-mix(in oklch, var(--plum) 8%, #fff)"
+                      : "#fff",
+                  }}
+                >
+                  <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 15, color: "var(--ink)" }}>
+                    {mode.label}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-soft)" }}>
+                    {mode.hint}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {draft.questions.map((q, qi) =>
