@@ -253,6 +253,7 @@ export function HostController({
           roster={roster}
           count={count}
           points={game.question?.points_base ?? null}
+          speedBonus={game.question?.time_limit_seconds != null && !game.answerChangeAllowed}
           tall
         />
       )}

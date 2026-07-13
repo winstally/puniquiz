@@ -41,6 +41,8 @@ type HostScreenProps = {
   countdownNumber?: number;
   /** This question's worth — full points for an instant correct answer. */
   points?: number | null;
+  /** True when points are speed-weighted (早押し + time limit) — shows the hint. */
+  speedBonus?: boolean;
   /** Manual question (no time limit): no answer-timer ring; host closes by hand. */
   manual?: boolean;
   /** Real big screen: fill vertical space so the parked question centres then
@@ -241,12 +243,15 @@ export function PlayerRow({ roster, count }: { roster: RosterAvatar[]; count: nu
 }
 
 // This question's worth, shown on the big screen so everyone knows the stake.
-// Speed-weighted: full points for an instant correct answer, down to half.
-function QuestionPointsBadge({ points }: { points: number }) {
+// The speed hint only applies when points are actually speed-weighted (早押し
+// with a time limit) — じっくり mode and 無制限 questions award full points.
+function QuestionPointsBadge({ points, speedBonus }: { points: number; speedBonus: boolean }) {
   return (
     <span style={questionPointsBadgeStyle}>
       <span style={{ fontSize: 16 }}>{points}</span>{POINTS_UNIT}
-      <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, marginLeft: 3 }}>速いほど高得点</span>
+      {speedBonus ? (
+        <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.7, marginLeft: 3 }}>速いほど高得点</span>
+      ) : null}
     </span>
   );
 }
@@ -298,6 +303,7 @@ function BoardPanel({
   roundPhase,
   countdownNumber,
   points,
+  speedBonus,
   manual,
   tall,
   demo,
@@ -312,6 +318,7 @@ function BoardPanel({
   roundPhase: RoundPhase;
   countdownNumber: number;
   points: number | null;
+  speedBonus: boolean;
   manual: boolean;
   tall: boolean;
   demo: boolean;
@@ -336,7 +343,7 @@ function BoardPanel({
 
       {points ? (
         <m.div layout="position">
-          <QuestionPointsBadge points={points} />
+          <QuestionPointsBadge points={points} speedBonus={speedBonus} />
         </m.div>
       ) : null}
 
@@ -494,6 +501,7 @@ export function HostScreen({
   roundPhase = null,
   countdownNumber = 0,
   points = null,
+  speedBonus = true,
   manual = false,
   tall = false,
   variant = "live",
@@ -516,6 +524,7 @@ export function HostScreen({
             roundPhase={roundPhase}
             countdownNumber={countdownNumber}
             points={points}
+            speedBonus={speedBonus}
             manual={manual}
             tall={tall}
             demo={demo}
