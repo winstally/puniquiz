@@ -169,7 +169,8 @@ export function PlayerBoard({
   /** じっくりモード: 締切まで回答を変更できる（ボタンをロックしない）。 */
   answerChangeAllowed?: boolean;
   hapticsEnabled?: boolean;
-  /** Points earned this round (set at reveal); speed-weighted. The phone is just
+  /** Points earned this round (set at reveal); speed-weighted only in 早押し
+   *  with a time limit (じっくり／無制限 award full points). The phone is just
    *  a controller — the host screen shows the question's worth, so this personal
    *  gain is the only points the phone surfaces. */
   awardedPoints?: number | null;
@@ -244,7 +245,7 @@ export function PlayerBoard({
           >
             {isRight ? "正解！" : "おしい！"}
           </span>
-          {/* Speed-weighted gain — the payoff of 早押し. Only correct answers
+          {/* Points gained (speed-weighted only in 早押し). Only correct answers
               score, so the +pt only shows when right. */}
           {isRight && awardedPoints != null && awardedPoints > 0 ? (
             <m.div

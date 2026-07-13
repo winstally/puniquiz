@@ -213,7 +213,8 @@ export function PhoneScreen({
   answerChangeAllowed?: boolean;
   /** Best-effort vibration feedback on supported play-side devices. */
   hapticsEnabled?: boolean;
-  /** Points earned this round (set at reveal); speed-weighted. Shown small on
+  /** Points earned this round (set at reveal); speed-weighted only in 早押し
+   *  with a time limit. Shown small on
    *  the phone — the host screen owns the question's worth. */
   awardedPoints?: number | null;
   /** Cancel participation — leave the game and return home. */
